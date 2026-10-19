@@ -17,9 +17,16 @@ export const DEFAULT_INITIAL_TRACK: NormalizedTrack = {
 };
 
 function getDb() {
-  const url = process.env.DATABASE_URL;
+  const url =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.STORAGE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.NEON_DATABASE_URL;
   if (!url) {
-    throw new Error('DATABASE_URL is not set in environment variables');
+    throw new Error(
+      'Database connection URL is not set. Please set DATABASE_URL or POSTGRES_URL in environment variables.'
+    );
   }
   return neon(url);
 }

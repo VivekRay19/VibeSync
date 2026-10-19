@@ -13,6 +13,8 @@ function getSessionSecret(): string {
   return (
     process.env.NEON_SESSION_SECRET ||
     process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.STORAGE_URL ||
     'vibesync_default_secret_key_neon_2026'
   );
 }
