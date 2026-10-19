@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { memoryStore } from '@/lib/supabase/mock-store';
+import { describe, it, expect } from 'vitest';
+import { memoryStore } from './fixtures/mock-store';
 import { NormalizedTrack } from '@/lib/types/music';
 
 describe('MemoryStore Collaborative Engine', () => {

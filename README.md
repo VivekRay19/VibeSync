@@ -1,47 +1,121 @@
-# 🎵 VibeSync — Collaborative Music Listening Platform
+# 🎵 VibeSync — Full-Stack Collaborative Music Listening Platform
 
-**VibeSync** is a full-stack, real-time collaborative music listening platform that lets friends around the world listen to the same music together from different devices in synchronous harmony—without requiring any listener to have a paid Spotify subscription.
+**VibeSync** is a production-grade, real-time collaborative music listening platform that lets friends around the world listen to the same music together from different devices in synchronous harmony—without requiring any listener to have a paid Spotify subscription.
+
+- **Live Application:** [https://vibe-sync-hazel.vercel.app/](https://vibe-sync-hazel.vercel.app/)
+- **GitHub Repository:** [https://github.com/VivekRay19/VibeSync](https://github.com/VivekRay19/VibeSync)
+- **Author:** Vivek Ray ([VivekRay19](https://github.com/VivekRay19))
 
 ---
 
 ## 🌟 Core Product Features
 
 1. **Instant Room Creation**: Create private listening rooms with collision-resistant 6-character room codes and one-click shareable invitation URLs.
-2. **Zero Mandatory Sign-Up Friction**: Join seamlessly as an authenticated guest session with a personalized display name.
-3. **Real-Time Collaborative Playback**:
-   - Every participant can pause, resume, seek, or change songs by default.
+2. **Cryptographic Session Security**:
+   - Zero mandatory sign-up friction.
+   - Server-issued, HMAC-SHA256 tamper-proof signed session cookies (`vibesync_auth_session`).
+   - Hardened `httpOnly`, `sameSite: 'lax'`, 30-day persistence to prevent identity spoofing.
+3. **Authoritative Real-Time Collaborative Playback**:
+   - Every participant in a room can pause, resume, seek, or change songs by default.
    - Synchronized playback state coordinates track selection, position, and controls across independent devices.
+   - Server-Sent Events (SSE) streaming (`/api/rooms/events`) with automatic heartbeat keepalives and zero external paid realtime dependencies.
+   - Client-side `BroadcastChannel` layer provides instant multi-tab zero-latency reflection in the same browser.
 4. **Drift-Corrected Playback Engine**:
-   - Calculates expected playback position: `expectedPosition = basePosition + elapsedServerTime`.
-   - Smooth drift correction checks local audio against room clock and applies seek adjustments only when drift exceeds the configured tolerance (2.0s), preventing jarring micro-seeks.
-   - Autoplay recovery: Catches browser autoplay restrictions with an interactive "Tap to Listen" banner.
+   - Computes expected position: $\text{expectedPosition} = \text{basePosition} + \text{elapsedServerTime}$.
+   - Drift correction checks local audio against the authoritative server clock and applies seek adjustments only when drift exceeds 2.0s, preventing jarring micro-seeks.
+   - Browser autoplay restrictions are cleanly intercepted with a high-visibility, interactive "Tap to Listen" banner.
 5. **Shared Democratic Queue**:
-   - Anyone can search and queue songs.
-   - Shows who added each song (`Added by Vivek`).
-   - Deterministic single-step queue advancement when the current song completes.
+   - Anyone in the room can search and queue songs.
+   - Displays participant attribution (`Added by Robin`).
+   - Deterministic queue progression when a song completes.
 6. **Open Music Provider Catalogs**:
    - **Primary Provider**: [Audius](https://docs.audius.co/) — Decentralized, free-to-stream catalog of indie, electronic, ambient, and lo-fi tracks.
    - **Secondary Provider**: [Jamendo](https://developer.jamendo.com/) — Modular provider for Creative Commons-licensed music.
-   - Clear and honest search results: Displays songs only when returned by connected providers.
-7. **Connected Listeners & Presence**:
-   - Live participant list powered by Supabase Realtime Presence.
-   - Host moderation tools (kick participant, close room).
-8. **Local Sound Controls**:
+   - Honest search results: Song results reflect verified tracks returned by connected provider catalogs.
+7. **Participant Presence & Moderation**:
+   - Real-time online participant tracking.
+   - Host moderation tools: kick offending participants, close room for all listeners.
+8. **Independent Local Sound Controls**:
    - Volume and mute are device-specific; adjusting your sound never alters other listeners' volume.
 
 ---
 
-## 🛠️ Technology Stack
+## 🛠️ Architecture & Technology Stack
+
+```mermaid
+flowchart TD
+    ClientA["Browser Listener A (Host)"] <-->|SSE & HTTPS API| NextServer["Next.js 14 App Router API"]
+    ClientB["Browser Listener B (Guest)"] <-->|SSE & HTTPS API| NextServer
+    
+    subgraph Neon Cloud Platform
+        NextServer <-->|@neondatabase/serverless| NeonDB[("Neon Postgres (production)")]
+        NextServer <-->|Neon Auth| NeonAuth["Managed Better Auth"]
+        NextServer <-->|AWS S3 SDK| NeonStorage["Neon Object Storage (assets)"]
+        NextServer <-->|HTTP| NeonCompute["Neon Functions"]
+    end
+    
+    ClientA -.->|Direct Audio Stream| AudiusCDN["Audius CDN Nodes"]
+    ClientB -.->|Direct Audio Stream| AudiusCDN
+```
 
 - **Frontend**: Next.js 14 (App Router), React 18, TypeScript (strict), Tailwind CSS, Lucide Icons.
-- **Backend**: Next.js Server Route Handlers for protected API requests and music source resolution.
-- **Database & Realtime**:
-  - Supabase PostgreSQL with Row Level Security (RLS).
-  - Supabase Realtime Broadcast for low-latency playback events (`PLAY`, `PAUSE`, `SEEK`, `SELECT_TRACK`).
-  - Supabase Realtime Presence for live online listener tracking.
-  - In-memory store fallback for offline/development environments.
-- **Music Catalogs**: Audius Discovery Node API & Jamendo v3.0 API.
-- **Testing**: Vitest, React Testing Library, JSDOM, Zod schema validation.
+- **Database**: **Neon Serverless PostgreSQL** (`cold-smoke-08579073`, branch `production`) accessed via `@neondatabase/serverless`.
+- **Realtime Transport**: Native Server-Sent Events (SSE) route handler (`/api/rooms/events`) with 20s keepalive heartbeats and in-memory event fanout.
+- **Identity & Security**: Server-signed HMAC-SHA256 session cookies preventing client identity spoofing.
+- **Neon Cloud Services**:
+  - **Neon Auth**: Managed Better Auth (`/neondb/auth`).
+  - **Neon Object Storage**: S3-compatible bucket (`assets`) for playlist backups and room media.
+  - **Neon Functions**: Serverless edge compute.
+- **Testing & Quality Assurance**: Vitest, React Testing Library, ESLint, TypeScript Strict compiler.
+
+---
+
+## 🗄️ Database Schema & Migrations
+
+Database tables reside in `public` schema in Neon Postgres:
+
+1. **`rooms`**:
+   - `id`: UUID (Primary Key)
+   - `room_code`: Unique 6-character room code
+   - `name`: Room title
+   - `owner_id`: Creator user identity
+   - `status`: `'active' | 'closed'`
+   - `created_at`, `updated_at`, `closed_at`: Timestamps
+2. **`room_members`**:
+   - `id`: UUID (Primary Key)
+   - `room_id`: Foreign key to `rooms(id)` (ON DELETE CASCADE)
+   - `user_id`: Member identity
+   - `display_name`: Participant name
+   - `role`: `'owner' | 'member'`
+   - `joined_at`: Timestamp
+   - Unique constraint on `(room_id, user_id)`
+3. **`playback_state`**:
+   - `id`: UUID (Primary Key)
+   - `room_id`: Foreign key to `rooms(id)` (Unique, ON DELETE CASCADE)
+   - `provider_id`: `'audius' | 'jamendo'`
+   - `provider_track_id`: Provider track ID
+   - `track_metadata`: Full track metadata (JSONB)
+   - `playback_status`: `'playing' | 'paused' | 'ended' | 'buffering'`
+   - `base_position_seconds`: Numeric position
+   - `revision`: Monotonically increasing BigInt revision counter
+   - `updated_by`, `updated_by_name`: Mutating user
+   - `current_queue_item_id`: Active queue item UUID
+4. **`queue_items`**:
+   - `id`: UUID (Primary Key)
+   - `room_id`: Foreign key to `rooms(id)` (ON DELETE CASCADE)
+   - `provider_id`: Track provider
+   - `provider_track_id`: Provider track identifier
+   - `track_metadata`: Track details (JSONB)
+   - `added_by`, `added_by_name`: Queuer attribution
+   - `queue_position`: Integer index
+   - `status`: `'pending' | 'playing' | 'played'`
+   - `created_at`: Timestamp
+
+### Applying Database Migrations
+Migrations are stored in `neon/migrations/001_vibesync_schema.sql` and can be executed via:
+```bash
+node --env-file=.env.local scripts/run-migrations.js
+```
 
 ---
 
@@ -49,7 +123,8 @@
 
 ### 1. Prerequisites
 - **Node.js**: v18.17+ or v20+ (v24 tested)
-- **npm**: v9+ (or v10+)
+- **npm**: v9+ or v10+
+- **Neon Account**: Access to your Neon project dashboard
 
 ### 2. Clone and Install
 ```bash
@@ -58,26 +133,18 @@ cd VibeSync
 npm install
 ```
 
-### 3. Environment Variables
-Copy the template configuration:
+### 3. Environment Configuration
+Copy `.env.example` to `.env.local`:
 ```bash
 cp .env.example .env.local
 ```
 
-Edit `.env.local`:
+Fill in your Neon project credentials in `.env.local`:
 ```ini
-# Supabase Configuration (Optional for initial local testing; fallback memory store activates automatically)
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
-SUPABASE_SECRET_KEY=your-supabase-service-role-key
-
-# Music Catalog Keys (Optional)
-# Audius works out of the box with decentralized nodes without an API key!
-AUDIUS_API_KEY=
-# Jamendo Client ID (Obtain free at https://developer.jamendo.com/ if desired)
-JAMENDO_CLIENT_ID=
-
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+DATABASE_URL=postgresql://neondb_owner:YOUR_PASSWORD@ep-odd-heart-b3lqslom-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+DATABASE_URL_UNPOOLED=postgresql://neondb_owner:YOUR_PASSWORD@ep-odd-heart-b3lqslom.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+NEON_BRANCH=production
+NEON_SESSION_SECRET=your-random-32-character-secret-key
 ```
 
 ### 4. Run Development Server
@@ -88,44 +155,21 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 🗄️ Database Setup (Supabase)
+## 🧪 Automated Testing & Verification
 
-To enable persistent cross-device storage and Supabase Realtime:
-
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Go to **SQL Editor** in your Supabase Dashboard.
-3. Paste and run the contents of [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql).
-4. Verify the created tables:
-   - `profiles`
-   - `rooms`
-   - `room_members`
-   - `playback_state`
-   - `queue_items`
-5. Ensure Realtime is enabled for these tables in Supabase:
-   - Go to **Database** -> **Replication**.
-   - Verify `playback_state`, `queue_items`, and `room_members` are toggled ON for `supabase_realtime`.
-6. Copy your **Project URL** and **anon public key** from **Project Settings** -> **API** into `.env.local`.
-
----
-
-## 🧪 Running Automated Tests
-
-VibeSync includes comprehensive unit, integration, and multi-user simulation tests:
+VibeSync maintains an automated test suite verifying music providers, audio drift math, security sessions, and real database workflows:
 
 ```bash
-# Run all tests once
+# Run full automated test suite (37 tests across 7 test suites)
 npm test
 
-# Run tests in watch mode
-npm run test:watch
-
-# Run TypeScript type check
+# Run TypeScript strict type verification
 npx tsc --noEmit
 
-# Run ESLint check
+# Run ESLint code quality checks
 npm run lint
 
-# Run production build
+# Run optimized production build
 npm run build
 ```
 
@@ -133,30 +177,31 @@ npm run build
 
 ## 🌐 Deploying to Vercel
 
-1. Push your code to your GitHub repository:
+1. Push your changes to GitHub:
    ```bash
    git push origin main
    ```
-2. Go to [vercel.com](https://vercel.com) and import the repository.
-3. Add the environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-   - `SUPABASE_SECRET_KEY`
-   - `AUDIUS_API_KEY` (if configured)
-   - `JAMENDO_CLIENT_ID` (if configured)
-4. Click **Deploy**. Vercel will build and deploy the Next.js App Router application.
+2. In your [Vercel Dashboard](https://vercel.com):
+   - Import the `VivekRay19/VibeSync` repository.
+   - Configure the following Environment Variables:
+     - `DATABASE_URL`: Your pooled Neon database URL.
+     - `DATABASE_URL_UNPOOLED`: Your unpooled Neon database URL.
+     - `NEON_SESSION_SECRET`: Your 32+ character HMAC session secret.
+     - `NEON_BRANCH`: `production`
+     - `NEXT_PUBLIC_APP_URL`: Your production Vercel deployment URL.
+3. Deploy! Next.js App Router route handlers will automatically connect to Neon Postgres and stream realtime room events over Server-Sent Events.
 
 ---
 
 ## 📄 Licensing & Catalog Transparency
 
-- Music search and playback are powered by open developer APIs.
+- Music search and playback are powered by open developer APIs ([Audius](https://audius.co) and [Jamendo](https://jamendo.com)).
 - Audio is streamed directly from authorized provider content distribution networks to client browsers.
-- VibeSync coordinates synchronized state and playback controls; it does not host or redistribute audio files.
+- VibeSync coordinates synchronized state and playback controls; it does not host, mirror, or redistribute audio files.
 
 ---
 
-## 👤 Author & Contribution
+## 👤 Author
 
-Created by **[Vivek Ray (VivekRay19)](https://github.com/VivekRay19)**.
-Repository: [https://github.com/VivekRay19/VibeSync](https://github.com/VivekRay19/VibeSync)
+Developed by **[Vivek Ray](https://github.com/VivekRay19)**  
+GitHub: [VivekRay19/VibeSync](https://github.com/VivekRay19/VibeSync)

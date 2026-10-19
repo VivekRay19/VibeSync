@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { memoryStore } from '@/lib/supabase/mock-store';
+import { memoryStore } from './fixtures/mock-store';
 import { providerRegistry } from '@/lib/providers/provider-registry';
 import { NormalizedTrack } from '@/lib/types/music';
 
