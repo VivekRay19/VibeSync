@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { CreateRoomSchema } from '@/lib/validations/room-schema';
-import { createRoomAction } from '@/lib/supabase/server';
+import { createRoom } from '@/lib/neon/db';
+import { getAuthenticatedUser, setSessionCookie } from '@/lib/auth/session';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,14 +16,27 @@ export async function POST(req: NextRequest) {
     }
 
     const { name, displayName } = validation.data;
-    const userId = body.userId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `user_${Math.random().toString(36).substring(2, 9)}`);
 
-    const result = await createRoomAction(name, userId, displayName);
-    if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
-    }
+    // Use existing verified user identity or issue a new secure UUID
+    const existingSession = getAuthenticatedUser();
+    const userId = existingSession?.userId || crypto.randomUUID();
 
-    return NextResponse.json(result, { status: 201 });
+    const { room, playbackState } = await createRoom(name, userId, displayName);
+
+    const response = NextResponse.json(
+      {
+        room,
+        playbackState,
+        user: { userId, displayName },
+      },
+      { status: 201 }
+    );
+
+    // Issue tamper-proof signed session cookie
+    const cookie = setSessionCookie(userId, displayName);
+    response.cookies.set(cookie.name, cookie.value, cookie.options);
+
+    return response;
   } catch (err) {
     console.error('Room create API error:', err);
     return NextResponse.json(

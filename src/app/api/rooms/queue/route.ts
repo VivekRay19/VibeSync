@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { QueueActionSchema } from '@/lib/validations/room-schema';
-import { getServerSupabase } from '@/lib/supabase/server';
-import { memoryStore } from '@/lib/supabase/mock-store';
-import { QueueItem } from '@/lib/types/music';
+import { getQueue, addQueueItem, removeQueueItem } from '@/lib/neon/db';
+import { getAuthenticatedUser } from '@/lib/auth/session';
+import { broadcastToRoom } from '@/lib/realtime/broadcast';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,40 +11,17 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const roomId = searchParams.get('roomId');
     if (!roomId) {
-      return NextResponse.json({ error: 'Missing roomId' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing roomId parameter' }, { status: 400 });
     }
 
-    const supabase = getServerSupabase();
-    if (!supabase) {
-      const queue = memoryStore.getQueue(roomId);
-      return NextResponse.json({ queue }, { status: 200 });
-    }
-
-    const { data, error } = await supabase
-      .from('queue_items')
-      .select('*')
-      .eq('room_id', roomId)
-      .eq('status', 'pending')
-      .order('queue_position', { ascending: true });
-
-    if (error) {
-      return NextResponse.json({ error: 'Failed to fetch queue' }, { status: 500 });
-    }
-
-    const queue: QueueItem[] = (data || []).map((q) => ({
-      id: q.id,
-      roomId: q.room_id,
-      track: q.track_metadata,
-      addedByUserId: q.added_by,
-      addedByName: q.added_by_name,
-      queuePosition: q.queue_position,
-      createdAt: q.created_at,
-      status: q.status,
-    }));
-
+    const queue = await getQueue(roomId);
     return NextResponse.json({ queue }, { status: 200 });
-  } catch {
-    return NextResponse.json({ error: 'Queue fetch failed' }, { status: 500 });
+  } catch (err) {
+    console.error('Queue fetch error:', err);
+    return NextResponse.json(
+      { error: 'Queue fetch failed', message: err instanceof Error ? err.message : 'Unknown error' },
+      { status: 500 }
+    );
   }
 }
 
@@ -60,71 +37,31 @@ export async function POST(req: NextRequest) {
     }
 
     const { roomId, action, track, queueItemId } = validation.data;
-    const userId = body.userId || 'anonymous';
-    const displayName = body.displayName || 'Room Listener';
-
-    const supabase = getServerSupabase();
-
-    if (!supabase) {
-      if (action === 'ADD' && track) {
-        const item = memoryStore.addQueueItem(roomId, track, userId, displayName);
-        const queue = memoryStore.getQueue(roomId);
-        return NextResponse.json({ item, queue }, { status: 201 });
-      } else if (action === 'REMOVE' && queueItemId) {
-        const queue = memoryStore.removeQueueItem(roomId, queueItemId);
-        return NextResponse.json({ queue }, { status: 200 });
-      }
-      return NextResponse.json({ queue: memoryStore.getQueue(roomId) }, { status: 200 });
-    }
+    const session = getAuthenticatedUser();
+    const userId = session?.userId || body.userId || 'guest_user';
+    const displayName = session?.displayName || body.displayName || 'Room Listener';
 
     if (action === 'ADD' && track) {
-      // Find current max queue position
-      const { count } = await supabase
-        .from('queue_items')
-        .select('*', { count: 'exact', head: true })
-        .eq('room_id', roomId)
-        .eq('status', 'pending');
+      const item = await addQueueItem(roomId, track, userId, displayName);
+      const updatedQueue = await getQueue(roomId);
 
-      const nextPos = count || 0;
+      // Broadcast new queue to all room members
+      broadcastToRoom(roomId, 'QUEUE_UPDATE', { queue: updatedQueue });
 
-      const { data, error } = await supabase
-        .from('queue_items')
-        .insert({
-          room_id: roomId,
-          provider_id: track.provider,
-          provider_track_id: track.providerTrackId,
-          track_metadata: track,
-          added_by: userId,
-          added_by_name: displayName,
-          queue_position: nextPos,
-          status: 'pending',
-        })
-        .select()
-        .single();
-
-      if (error || !data) {
-        return NextResponse.json({ error: 'Failed to add item to queue' }, { status: 500 });
-      }
-
-      const item: QueueItem = {
-        id: data.id,
-        roomId: data.room_id,
-        track: data.track_metadata,
-        addedByUserId: data.added_by,
-        addedByName: data.added_by_name,
-        queuePosition: data.queue_position,
-        createdAt: data.created_at,
-        status: data.status,
-      };
-
-      return NextResponse.json({ item }, { status: 201 });
+      return NextResponse.json({ item, queue: updatedQueue }, { status: 201 });
     } else if (action === 'REMOVE' && queueItemId) {
-      await supabase.from('queue_items').delete().eq('id', queueItemId).eq('room_id', roomId);
-      return NextResponse.json({ success: true, removedId: queueItemId }, { status: 200 });
+      await removeQueueItem(roomId, queueItemId);
+      const updatedQueue = await getQueue(roomId);
+
+      // Broadcast removed queue to all room members
+      broadcastToRoom(roomId, 'QUEUE_UPDATE', { queue: updatedQueue });
+
+      return NextResponse.json({ success: true, removedId: queueItemId, queue: updatedQueue }, { status: 200 });
     }
 
     return NextResponse.json({ error: 'Unsupported queue action' }, { status: 400 });
   } catch (err) {
+    console.error('Queue action failed:', err);
     return NextResponse.json(
       { error: 'Queue action failed', message: err instanceof Error ? err.message : 'Unknown error' },
       { status: 500 }

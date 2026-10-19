@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { JoinRoomSchema } from '@/lib/validations/room-schema';
-import { joinRoomAction } from '@/lib/supabase/server';
+import { joinRoom } from '@/lib/neon/db';
+import { getAuthenticatedUser, setSessionCookie } from '@/lib/auth/session';
+import { broadcastToRoom } from '@/lib/realtime/broadcast';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,14 +17,39 @@ export async function POST(req: NextRequest) {
     }
 
     const { roomCode, displayName } = validation.data;
-    const userId = body.userId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `user_${Math.random().toString(36).substring(2, 9)}`);
 
-    const result = await joinRoomAction(roomCode, userId, displayName);
+    // Use existing verified user identity or issue a new secure UUID
+    const existingSession = getAuthenticatedUser();
+    const userId = existingSession?.userId || crypto.randomUUID();
+
+    const result = await joinRoom(roomCode, userId, displayName);
     if (result.error || !result.room) {
       return NextResponse.json({ error: result.error || 'Room not found' }, { status: 404 });
     }
 
-    return NextResponse.json(result, { status: 200 });
+    // Broadcast user joined event to active SSE clients
+    broadcastToRoom(result.room.id, 'USER_JOINED', {
+      userId,
+      displayName,
+      joinedAt: new Date().toISOString(),
+    });
+
+    const response = NextResponse.json(
+      {
+        room: result.room,
+        playbackState: result.playbackState,
+        members: result.members,
+        queue: result.queue,
+        user: { userId, displayName },
+      },
+      { status: 200 }
+    );
+
+    // Issue tamper-proof signed session cookie
+    const cookie = setSessionCookie(userId, displayName);
+    response.cookies.set(cookie.name, cookie.value, cookie.options);
+
+    return response;
   } catch (err) {
     console.error('Room join API error:', err);
     return NextResponse.json(
