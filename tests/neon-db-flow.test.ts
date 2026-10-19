@@ -33,6 +33,18 @@ describe('Neon Database Collaborative Lifecycle Flow', () => {
     isPlayable: true,
   };
 
+  const sampleYouTubeTrack: NormalizedTrack = {
+    id: 'youtube:KRUWn3dLoRg',
+    provider: 'youtube',
+    providerTrackId: 'KRUWn3dLoRg',
+    title: 'Ghost (Official Music Video)',
+    artistName: 'Justin Bieber',
+    durationSeconds: 213,
+    providerPageUrl: 'https://www.youtube.com/watch?v=KRUWn3dLoRg',
+    artworkUrl: 'https://i.ytimg.com/vi/KRUWn3dLoRg/hqdefault.jpg',
+    isPlayable: true,
+  };
+
   afterAll(async () => {
     if (createdRoomId && process.env.DATABASE_URL) {
       const sql = neon(process.env.DATABASE_URL);
@@ -181,6 +193,37 @@ describe('Neon Database Collaborative Lifecycle Flow', () => {
     // Verify queue is now empty of pending items
     const queueAfterSkip = await getQueue(createdRoomId!);
     expect(queueAfterSkip.length).toBe(0);
+  });
+
+  it('supports YouTube tracks in playback and queue with Neon DB check constraints', async () => {
+    expect(createdRoomId).not.toBeNull();
+
+    // 1. Select YouTube track
+    const selectYouTube = await updatePlaybackCommand({
+      roomId: createdRoomId!,
+      command: 'SELECT_TRACK',
+      positionSeconds: 0,
+      revision: 6,
+      track: sampleYouTubeTrack,
+      userId: ownerId,
+      displayName: 'Alice Host',
+    });
+
+    expect(selectYouTube.revision).toBe(7);
+    expect(selectYouTube.provider).toBe('youtube');
+    expect(selectYouTube.providerTrackId).toBe('KRUWn3dLoRg');
+    expect(selectYouTube.track.title).toBe('Ghost (Official Music Video)');
+    expect(selectYouTube.track.provider).toBe('youtube');
+
+    // 2. Add YouTube track to queue
+    const queueItem = await addQueueItem(createdRoomId!, sampleYouTubeTrack, guestId, 'Bob Listener');
+    expect(queueItem.id).toBeDefined();
+    expect(queueItem.track.provider).toBe('youtube');
+    expect(queueItem.track.providerTrackId).toBe('KRUWn3dLoRg');
+
+    // 3. Remove item from queue
+    const removeSuccess = await removeQueueItem(createdRoomId!, queueItem.id);
+    expect(removeSuccess).toBe(true);
   });
 
   it('enforces moderation permissions: kick and room close', async () => {

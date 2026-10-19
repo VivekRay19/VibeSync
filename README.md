@@ -30,7 +30,7 @@
    - Deterministic queue progression when a song completes.
 6. **Open Music Provider Catalogs**:
    - **Primary Provider**: [Audius](https://docs.audius.co/) — Decentralized, free-to-stream catalog of indie, electronic, ambient, and lo-fi tracks.
-   - **Secondary Provider**: [Jamendo](https://developer.jamendo.com/) — Modular provider for Creative Commons-licensed music.
+   - **Secondary Provider**: [YouTube](https://developers.google.com/youtube/v3) — Search millions of tracks via the official YouTube Data API v3 and listen together via the official YouTube IFrame Player API.
    - Honest search results: Song results reflect verified tracks returned by connected provider catalogs.
 7. **Participant Presence & Moderation**:
    - Real-time online participant tracking.
@@ -92,7 +92,7 @@ Database tables reside in `public` schema in Neon Postgres:
 3. **`playback_state`**:
    - `id`: UUID (Primary Key)
    - `room_id`: Foreign key to `rooms(id)` (Unique, ON DELETE CASCADE)
-   - `provider_id`: `'audius' | 'jamendo'`
+   - `provider_id`: `'audius' | 'youtube'`
    - `provider_track_id`: Provider track ID
    - `track_metadata`: Full track metadata (JSONB)
    - `playback_status`: `'playing' | 'paused' | 'ended' | 'buffering'`
@@ -103,7 +103,7 @@ Database tables reside in `public` schema in Neon Postgres:
 4. **`queue_items`**:
    - `id`: UUID (Primary Key)
    - `room_id`: Foreign key to `rooms(id)` (ON DELETE CASCADE)
-   - `provider_id`: Track provider
+   - `provider_id`: `'audius' | 'youtube'`
    - `provider_track_id`: Provider track identifier
    - `track_metadata`: Track details (JSONB)
    - `added_by`, `added_by_name`: Queuer attribution
@@ -112,10 +112,12 @@ Database tables reside in `public` schema in Neon Postgres:
    - `created_at`: Timestamp
 
 ### Applying Database Migrations
-Migrations are stored in `neon/migrations/001_vibesync_schema.sql` and can be executed via:
+Migrations are stored in `neon/migrations/` and can be executed via:
 ```bash
 node --env-file=.env.local scripts/run-migrations.js
 ```
+- `001_vibesync_schema.sql`: Initial core schema (rooms, room_members, playback_state, queue_items).
+- `002_youtube_provider.sql`: Check constraint update enabling official YouTube Data API v3 and YouTube IFrame Player API.
 
 ---
 
@@ -145,6 +147,7 @@ DATABASE_URL=postgresql://neondb_owner:YOUR_PASSWORD@ep-odd-heart-b3lqslom-poole
 DATABASE_URL_UNPOOLED=postgresql://neondb_owner:YOUR_PASSWORD@ep-odd-heart-b3lqslom.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
 NEON_BRANCH=production
 NEON_SESSION_SECRET=your-random-32-character-secret-key
+YOUTUBE_API_KEY=your-google-cloud-youtube-data-api-v3-key
 ```
 
 ### 4. Run Development Server
@@ -160,7 +163,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 VibeSync maintains an automated test suite verifying music providers, audio drift math, security sessions, and real database workflows:
 
 ```bash
-# Run full automated test suite (37 tests across 7 test suites)
+# Run full automated test suite (39 tests across 7 test suites)
 npm test
 
 # Run TypeScript strict type verification
@@ -188,6 +191,7 @@ npm run build
      - `DATABASE_URL_UNPOOLED`: Your unpooled Neon database URL.
      - `NEON_SESSION_SECRET`: Your 32+ character HMAC session secret.
      - `NEON_BRANCH`: `production`
+     - `YOUTUBE_API_KEY`: Your Google Cloud YouTube Data API v3 key.
      - `NEXT_PUBLIC_APP_URL`: Your production Vercel deployment URL.
 3. Deploy! Next.js App Router route handlers will automatically connect to Neon Postgres and stream realtime room events over Server-Sent Events.
 
@@ -195,9 +199,9 @@ npm run build
 
 ## 📄 Licensing & Catalog Transparency
 
-- Music search and playback are powered by open developer APIs ([Audius](https://audius.co) and [Jamendo](https://jamendo.com)).
-- Audio is streamed directly from authorized provider content distribution networks to client browsers.
-- VibeSync coordinates synchronized state and playback controls; it does not host, mirror, or redistribute audio files.
+- Music search and playback are powered by open developer APIs ([Audius](https://audius.co) and official [YouTube Data API v3](https://developers.google.com/youtube/v3)).
+- Audio & video streams are served directly from authorized provider platforms: Audius streams directly from decentralized CDN nodes; YouTube plays using the official YouTube IFrame Player API in compliance with YouTube API Developer Terms of Service.
+- VibeSync coordinates synchronized playback state and collaborative controls; it does not host, extract, download, relay, or redistribute copyrighted audio/video files.
 
 ---
 
