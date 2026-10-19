@@ -13,9 +13,9 @@ export function ProviderBadge({ provider }: { provider: MusicProviderId }) {
   }
 
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-950/70 text-blue-300 border border-blue-800/40">
-      <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-      Jamendo
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-red-950/70 text-red-300 border border-red-800/40">
+      <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+      YouTube
     </span>
   );
 }

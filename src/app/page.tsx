@@ -245,7 +245,7 @@ export default function LandingPage() {
                 </div>
                 <h3 className="text-base font-semibold text-white">Open Music Catalogs</h3>
                 <p className="text-xs text-neutral-400 leading-relaxed">
-                  Integrated with authorized Audius and Jamendo catalogs. Free for every participant without paywalls or mandatory paid subscriptions.
+                  Integrated with authorized Audius and YouTube catalogs. Free for every participant without paywalls or mandatory paid subscriptions.
                 </p>
               </div>
             </div>

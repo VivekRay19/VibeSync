@@ -24,12 +24,12 @@ export function Footer() {
               Audius API <ExternalLink className="w-3 h-3" />
             </a>
             <a
-              href="https://developer.jamendo.com"
+              href="https://developers.google.com/youtube/v3"
               target="_blank"
               rel="noreferrer"
-              className="hover:text-blue-400 transition-colors inline-flex items-center gap-1"
+              className="hover:text-red-400 transition-colors inline-flex items-center gap-1"
             >
-              Jamendo API <ExternalLink className="w-3 h-3" />
+              YouTube API <ExternalLink className="w-3 h-3" />
             </a>
             <a
               href="https://neon.tech"
@@ -48,7 +48,7 @@ export function Footer() {
             Catalog Availability & Fair Streaming Notice
           </div>
           <p>
-            VibeSync searches and streams music strictly through authorized music catalog APIs (Audius and Jamendo). Search results reflect songs available within connected developer catalogs. The platform coordinates playback metadata and control commands; audio is streamed directly to each listener&apos;s browser from authorized servers.
+            VibeSync searches and streams music strictly through authorized music catalog APIs (Audius and YouTube). Search results reflect media available within connected developer catalogs. The platform coordinates playback metadata and control commands; audio is streamed directly to each listener&apos;s browser from authorized servers.
           </p>
         </div>
 

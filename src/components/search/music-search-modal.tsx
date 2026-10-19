@@ -121,7 +121,7 @@ export function MusicSearchModal({
         {/* Provider tabs */}
         <div className="flex items-center gap-2 pb-1 border-b border-surface-800 text-xs">
           <span className="text-neutral-400 mr-1">Catalog:</span>
-          {(['all', 'audius', 'jamendo'] as const).map((p) => (
+          {(['all', 'audius', 'youtube'] as const).map((p) => (
             <button
               key={p}
               onClick={() => setProvider(p)}
@@ -131,7 +131,7 @@ export function MusicSearchModal({
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-surface-800'
               }`}
             >
-              {p === 'all' ? 'All Providers' : p === 'audius' ? 'Audius' : 'Jamendo'}
+              {p === 'all' ? 'All Providers' : p === 'audius' ? 'Audius' : 'YouTube'}
             </button>
           ))}
         </div>

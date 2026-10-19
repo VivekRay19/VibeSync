@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   title: 'VibeSync — Collaborative Music Listening Platform',
   description:
     'Listen together in real time with friends. Collaborative queue, synchronized playback, open music catalogs, and democratic controls with zero subscription requirements.',
-  keywords: ['music listening room', 'collaborative music player', 'listen together', 'sync audio', 'Audius', 'Jamendo'],
+  keywords: ['music listening room', 'collaborative music player', 'listen together', 'sync audio', 'Audius', 'YouTube'],
   authors: [{ name: 'VibeSync Team' }],
 };
 

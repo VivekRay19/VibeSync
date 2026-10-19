@@ -77,46 +77,56 @@ export function PlayerControls({
 
       {/* Top Header / Track Metadata */}
       <div className="flex flex-col md:flex-row items-center gap-6 sm:gap-8 z-10">
-        {/* Large Artwork */}
-        <div className="relative group shrink-0">
-          <div
-            className={`w-40 h-40 sm:w-48 sm:h-48 rounded-2xl overflow-hidden bg-surface-950 border border-surface-700/80 shadow-2xl flex items-center justify-center transition-all duration-500 ${
-              isPlaying ? 'ring-2 ring-purple-500/50 shadow-glow-purple' : ''
-            }`}
-          >
-            {track?.artworkUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={track.artworkUrl}
-                alt={track.title}
-                className={`w-full h-full object-cover transition-transform duration-700 ${
-                  isPlaying ? 'scale-105' : 'scale-100'
-                }`}
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center text-neutral-600 gap-2">
-                <Music className="w-12 h-12 text-purple-400/70" />
-                <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                  VibeSync
-                </span>
-              </div>
+        {/* Large Artwork (for Audius / default empty) */}
+        {track?.provider !== 'youtube' ? (
+          <div className="relative group shrink-0">
+            <div
+              className={`w-40 h-40 sm:w-48 sm:h-48 rounded-2xl overflow-hidden bg-surface-950 border border-surface-700/80 shadow-2xl flex items-center justify-center transition-all duration-500 ${
+                isPlaying ? 'ring-2 ring-purple-500/50 shadow-glow-purple' : ''
+              }`}
+            >
+              {track?.artworkUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={track.artworkUrl}
+                  alt={track.title}
+                  className={`w-full h-full object-cover transition-transform duration-700 ${
+                    isPlaying ? 'scale-105' : 'scale-100'
+                  }`}
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-neutral-600 gap-2">
+                  <Music className="w-12 h-12 text-purple-400/70" />
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                    VibeSync
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {isPlaying && (
+              <span className="absolute -bottom-2 -right-2 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-purple-500 border-2 border-surface-900" />
+              </span>
             )}
           </div>
-
-          {isPlaying && (
-            <span className="absolute -bottom-2 -right-2 flex h-4 w-4">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-4 w-4 bg-purple-500 border-2 border-surface-900" />
-            </span>
-          )}
-        </div>
+        ) : null}
 
         {/* Track Title, Artist, Attribution */}
-        <div className="flex-1 text-center md:text-left space-y-2.5 min-w-0">
-          <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
+        <div
+          className={`flex-1 space-y-2.5 min-w-0 ${
+            track?.provider === 'youtube' ? 'text-left' : 'text-center md:text-left'
+          }`}
+        >
+          <div
+            className={`flex flex-wrap items-center gap-2 ${
+              track?.provider === 'youtube' ? 'justify-start' : 'justify-center md:justify-start'
+            }`}
+          >
             <PlaybackStatusBadge status={isBuffering ? 'buffering' : playbackState.playbackStatus} />
             {track && <ProviderBadge provider={track.provider} />}
             {driftStatus && (
@@ -137,7 +147,11 @@ export function PlayerControls({
 
           {/* User selection attribution */}
           {playbackState.updatedByName && (
-            <div className="flex items-center justify-center md:justify-start gap-1.5 text-xs text-neutral-400">
+            <div
+              className={`flex items-center gap-1.5 text-xs text-neutral-400 ${
+                track?.provider === 'youtube' ? 'justify-start' : 'justify-center md:justify-start'
+              }`}
+            >
               <User className="w-3.5 h-3.5 text-purple-400" />
               <span>
                 Selected by <strong className="text-neutral-200">{playbackState.updatedByName}</strong>
@@ -154,7 +168,7 @@ export function PlayerControls({
                 rel="noreferrer"
                 className="text-xs text-neutral-400 hover:text-purple-400 inline-flex items-center gap-1 transition-colors"
               >
-                View on {track.provider === 'audius' ? 'Audius.co' : 'Jamendo.com'}{' '}
+                View on {track.provider === 'audius' ? 'Audius.co' : 'YouTube.com'}{' '}
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>

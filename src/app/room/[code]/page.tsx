@@ -6,6 +6,7 @@ import { Navbar } from '@/components/navigation/navbar';
 import { Footer } from '@/components/navigation/footer';
 import { RoomHeader } from '@/components/room/room-header';
 import { AudioPlayer } from '@/components/player/audio-player';
+import { YouTubePlayer } from '@/components/player/youtube-player';
 import { PlayerControls } from '@/components/player/player-controls';
 import { SharedQueue } from '@/components/queue/shared-queue';
 import { ParticipantList } from '@/components/room/participant-list';
@@ -502,24 +503,39 @@ export default function RoomPage() {
           onCloseRoom={handleCloseRoom}
         />
 
-        {/* NATIVE AUDIO SYNCHRONIZATION ENGINE */}
-        <AudioPlayer
-          playbackState={playbackState}
-          onTrackEnded={handleTrackEnded}
-          onDriftCorrected={handleDriftCorrected}
-          onBufferingChange={setIsBuffering}
-          onTimeUpdate={(curr, dur) => {
-            setCurrentTime(curr);
-            setDuration(dur);
-          }}
-          localVolume={localVolume}
-          isMuted={isMuted}
-        />
-
         {/* MAIN MULTI-COLUMN LISTENING ROOM LAYOUT */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left / Center Column: Player Controls & Visualizer (7 cols) */}
           <div className="lg:col-span-7 space-y-6">
+            {/* Provider-aware Synchronization Engine & Media Player */}
+            {playbackState.track &&
+            (playbackState.provider === 'youtube' || playbackState.track.provider === 'youtube') ? (
+              <YouTubePlayer
+                playbackState={playbackState}
+                onTrackEnded={handleTrackEnded}
+                onDriftCorrected={handleDriftCorrected}
+                onBufferingChange={setIsBuffering}
+                onTimeUpdate={(curr, dur) => {
+                  setCurrentTime(curr);
+                  setDuration(dur);
+                }}
+                localVolume={localVolume}
+                isMuted={isMuted}
+              />
+            ) : (
+              <AudioPlayer
+                playbackState={playbackState}
+                onTrackEnded={handleTrackEnded}
+                onDriftCorrected={handleDriftCorrected}
+                onBufferingChange={setIsBuffering}
+                onTimeUpdate={(curr, dur) => {
+                  setCurrentTime(curr);
+                  setDuration(dur);
+                }}
+                localVolume={localVolume}
+                isMuted={isMuted}
+              />
+            )}
             <PlayerControls
               playbackState={playbackState}
               currentSeconds={currentTime}
