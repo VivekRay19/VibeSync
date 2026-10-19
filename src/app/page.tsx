@@ -7,7 +7,7 @@ import { Footer } from '@/components/navigation/footer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
-import { generateOrGetGuestSession, getLocalGuestSession } from '@/lib/supabase/client';
+import { generateOrGetGuestSession, getLocalGuestSession } from '@/lib/auth/client';
 import {
   Radio,
   Users,

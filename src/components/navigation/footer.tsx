@@ -32,12 +32,12 @@ export function Footer() {
               Jamendo API <ExternalLink className="w-3 h-3" />
             </a>
             <a
-              href="https://supabase.com"
+              href="https://neon.tech"
               target="_blank"
               rel="noreferrer"
               className="hover:text-emerald-400 transition-colors inline-flex items-center gap-1"
             >
-              Supabase Realtime <ExternalLink className="w-3 h-3" />
+              Neon Postgres <ExternalLink className="w-3 h-3" />
             </a>
           </div>
         </div>

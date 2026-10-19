@@ -21,11 +21,10 @@ import {
 } from '@/lib/types/music';
 import { PresenceState } from '@/lib/types/realtime';
 import {
-  getSupabaseClient,
   generateOrGetGuestSession,
   getLocalGuestSession,
   GuestSession,
-} from '@/lib/supabase/client';
+} from '@/lib/auth/client';
 import { Loader2, AlertCircle, Headphones } from 'lucide-react';
 
 export default function RoomPage() {
@@ -126,11 +125,10 @@ export default function RoomPage() {
     }
   }, [session, needsNamePrompt, loadRoom]);
 
-  // Set up Supabase Realtime Channel & Browser BroadcastChannel
+  // Set up Server-Sent Events (SSE) stream & Browser BroadcastChannel
   useEffect(() => {
     if (!room || !session) return;
 
-    const supabase = getSupabaseClient();
     const channelName = `vibesync_room_${room.id}`;
 
     // 1. Browser BroadcastChannel for instant local multi-tab sync
@@ -155,70 +153,72 @@ export default function RoomPage() {
       };
     }
 
-    // 2. Supabase Realtime Channel if configured
-    let supabaseChannel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null;
-    if (supabase) {
-      supabaseChannel = supabase.channel(channelName, {
-        config: {
-          broadcast: { self: false },
-          presence: { key: session.userId },
-        },
-      });
+    // 2. Server-Sent Events (SSE) stream for cross-device real-time sync
+    const eventUrl = `/api/rooms/events?roomId=${encodeURIComponent(room.id)}&userId=${encodeURIComponent(session.userId)}&displayName=${encodeURIComponent(session.displayName)}`;
+    const eventSource = new EventSource(eventUrl);
 
-      // Listen to broadcast state updates
-      supabaseChannel
-        .on('broadcast', { event: 'playback_state' }, (payload) => {
-          if (payload.payload?.state) {
-            const incoming = payload.payload.state as PlaybackState;
-            setPlaybackState((prev) => {
-              if (!prev || incoming.revision >= prev.revision) {
-                return incoming;
-              }
-              return prev;
-            });
-          }
-        })
-        .on('broadcast', { event: 'queue_update' }, (payload) => {
-          if (payload.payload?.queue) {
-            setQueue(payload.payload.queue);
-          }
-        })
-        .on('broadcast', { event: 'room_closed' }, () => {
-          router.push('/?closed=true');
-        });
+    eventSource.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        const { type, payload } = parsed;
 
-      // Presence tracking
-      supabaseChannel
-        .on('presence', { event: 'sync' }, () => {
-          const state = supabaseChannel!.presenceState();
-          const activePresence: PresenceState[] = [];
-          for (const key in state) {
-            const presences = state[key] as unknown as PresenceState[];
-            if (presences && presences.length > 0) {
-              activePresence.push(presences[0]);
+        if (type === 'PLAYBACK_STATE' && payload?.state) {
+          const incoming = payload.state as PlaybackState;
+          setPlaybackState((prev) => {
+            if (!prev || incoming.revision >= prev.revision) {
+              return incoming;
             }
+            return prev;
+          });
+        } else if (type === 'QUEUE_UPDATE' && payload?.queue) {
+          setQueue(payload.queue);
+        } else if (type === 'PRESENCE_SYNC' && payload?.members) {
+          const activePresences: PresenceState[] = (payload.members as Array<{ userId: string; displayName: string; joinedAt?: string }>).map((m) => ({
+            userId: m.userId,
+            displayName: m.displayName,
+            isOwner: room.ownerId === m.userId,
+            onlineAt: m.joinedAt || new Date().toISOString(),
+          }));
+          setPresenceMembers(activePresences);
+        } else if (type === 'USER_JOINED' && payload) {
+          setMembers((prev) => {
+            if (prev.some((m) => m.userId === payload.userId)) return prev;
+            return [
+              ...prev,
+              {
+                id: payload.userId,
+                roomId: room.id,
+                userId: payload.userId,
+                displayName: payload.displayName,
+                role: 'member',
+                joinedAt: payload.joinedAt || new Date().toISOString(),
+              },
+            ];
+          });
+        } else if (type === 'MEMBER_KICKED') {
+          if (payload.targetUserId === session.userId) {
+            alert('You have been removed from the listening room by the owner.');
+            router.push('/');
+          } else if (payload.members) {
+            setMembers(payload.members);
           }
-          setPresenceMembers(activePresence);
-        })
-        .subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            await supabaseChannel!.track({
-              userId: session.userId,
-              displayName: session.displayName,
-              isOwner: room.ownerId === session.userId,
-              onlineAt: new Date().toISOString(),
-            });
-          }
-        });
-    }
+        } else if (type === 'ROOM_CLOSED') {
+          router.push('/?closed=true');
+        }
+      } catch (err) {
+        console.error('Error handling SSE event:', err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn('SSE connection interrupted, browser will auto-reconnect:', err);
+    };
 
     return () => {
       if (tabBroadcastRef.current) {
         tabBroadcastRef.current.close();
       }
-      if (supabase && supabaseChannel) {
-        supabase.removeChannel(supabaseChannel);
-      }
+      eventSource.close();
     };
   }, [room, session, router]);
 
@@ -260,17 +260,6 @@ export default function RoomPage() {
           tabBroadcastRef.current.postMessage({
             type: 'STATE_UPDATE',
             payload: data.state,
-          });
-        }
-
-        // Broadcast to Supabase Realtime channel
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          const ch = supabase.channel(`vibesync_room_${room.id}`);
-          ch.send({
-            type: 'broadcast',
-            event: 'playback_state',
-            payload: { state: data.state },
           });
         }
       }

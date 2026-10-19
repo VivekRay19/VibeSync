@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { BrandLogo } from '../ui/brand-logo';
-import { getLocalGuestSession, GuestSession } from '@/lib/supabase/client';
+import { getLocalGuestSession, GuestSession } from '@/lib/auth/client';
 import { User } from 'lucide-react';
 
 interface NavbarProps {
