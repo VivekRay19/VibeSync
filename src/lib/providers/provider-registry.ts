@@ -39,7 +39,7 @@ export class ProviderRegistry {
   ): Promise<{ tracks: NormalizedTrack[]; warnings: string[]; total: number }> {
     const activeProviders =
       targetProvider === 'all'
-        ? this.getAll()
+        ? this.getAll().filter((p) => p.isConfigured())
         : [this.get(targetProvider)].filter(Boolean) as MusicProvider[];
 
     const searchPromises = activeProviders.map(async (p) => {
