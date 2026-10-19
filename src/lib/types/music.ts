@@ -1,4 +1,4 @@
-export type MusicProviderId = 'audius' | 'jamendo';
+export type MusicProviderId = 'audius' | 'youtube';
 
 export interface NormalizedTrack {
   id: string; // provider:providerTrackId

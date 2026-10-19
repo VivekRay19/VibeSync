@@ -1,6 +1,6 @@
 import { MusicProvider } from './provider-interface';
 import { AudiusAdapter } from './audius-adapter';
-import { JamendoAdapter } from './jamendo-adapter';
+import { YouTubeAdapter } from './youtube-adapter';
 import { MusicProviderId, NormalizedTrack, SearchResult } from '../types/music';
 
 export class ProviderRegistry {
@@ -8,7 +8,7 @@ export class ProviderRegistry {
 
   constructor() {
     this.register(new AudiusAdapter());
-    this.register(new JamendoAdapter());
+    this.register(new YouTubeAdapter());
   }
 
   register(provider: MusicProvider): void {

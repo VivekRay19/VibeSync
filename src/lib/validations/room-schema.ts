@@ -12,14 +12,14 @@ export const JoinRoomSchema = z.object({
 
 export const SearchTracksSchema = z.object({
   query: z.string().trim().min(1, 'Search query cannot be empty').max(100, 'Search query is too long'),
-  provider: z.enum(['all', 'audius', 'jamendo']).default('all'),
+  provider: z.enum(['all', 'audius', 'youtube']).default('all'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 
 export const TrackSchema = z.object({
   id: z.string(),
-  provider: z.enum(['audius', 'jamendo']),
+  provider: z.enum(['audius', 'youtube']),
   providerTrackId: z.string(),
   title: z.string(),
   artistName: z.string(),

@@ -11,22 +11,31 @@ async function runMigrations() {
   console.log('Connecting to Neon database for schema migration...');
   const sql = neon(connectionString);
 
-  const migrationFile = path.join(__dirname, '../neon/migrations/001_vibesync_schema.sql');
-  const migrationSql = fs.readFileSync(migrationFile, 'utf8');
+  const migrationsDir = path.join(__dirname, '../neon/migrations');
+  const files = fs.readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
 
-  // Strip single-line comments (-- ...) and split by semicolon
-  const strippedSql = migrationSql.replace(/--.*$/gm, '');
-  const statements = strippedSql
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
+  console.log(`Found ${files.length} migration file(s): ${files.join(', ')}`);
 
-  console.log(`Executing ${statements.length} migration statements...`);
-  for (const statement of statements) {
-    await sql.query(statement);
+  for (const file of files) {
+    console.log(`\nExecuting migration: ${file}...`);
+    const migrationSql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+
+    // Strip single-line comments (-- ...) and split by semicolon
+    const strippedSql = migrationSql.replace(/--.*$/gm, '');
+    const statements = strippedSql
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    for (const statement of statements) {
+      await sql.query(statement);
+    }
+    console.log(`✓ Migration ${file} applied successfully.`);
   }
 
-  console.log('Verifying created tables in public schema...');
+  console.log('\nVerifying tables in public schema...');
   const tables = await sql`
     SELECT table_name 
     FROM information_schema.tables 
@@ -34,8 +43,8 @@ async function runMigrations() {
     ORDER BY table_name
   `;
 
-  console.log('Public tables created:', tables.map(t => t.table_name));
-  console.log('Migration applied successfully!');
+  console.log('Public tables:', tables.map(t => t.table_name));
+  console.log('\nAll migrations applied successfully!');
 }
 
 runMigrations().catch(err => {
