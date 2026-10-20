@@ -2,47 +2,292 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Navbar } from '@/components/navigation/navbar';
-import { Footer } from '@/components/navigation/footer';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { LiquidGlassLayout } from '@/components/layout/liquid-glass-layout';
+import { HeroBanner } from '@/components/discovery/hero-banner';
+import { DiscoverySections } from '@/components/discovery/discovery-sections';
 import { Modal } from '@/components/ui/modal';
-import { generateOrGetGuestSession, getLocalGuestSession } from '@/lib/auth/client';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { MusicSearchModal } from '@/components/search/music-search-modal';
 import {
-  Radio,
-  Users,
-  Sparkles,
-  ArrowRight,
-  Sliders,
-  ShieldCheck,
-  Disc3,
-} from 'lucide-react';
+  generateOrGetGuestSession,
+  getLocalGuestSession,
+  GuestSession,
+} from '@/lib/auth/client';
+import {
+  Room,
+  PlaybackState,
+  QueueItem,
+  NormalizedTrack,
+} from '@/lib/types/music';
+import { PresenceState } from '@/lib/types/realtime';
+import { Radio, Users } from 'lucide-react';
 
-export default function LandingPage() {
+// Default initial track matching the reference UI screenshot: Die For You by The Weeknd
+const DEFAULT_DIE_FOR_YOU_TRACK: NormalizedTrack = {
+  id: 'verome:u9n7Cw-4_PE',
+  provider: 'verome',
+  providerTrackId: 'u9n7Cw-4_PE',
+  title: 'Die For You',
+  artistName: 'The Weeknd',
+  artworkUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&h=400&fit=crop&q=80',
+  durationSeconds: 260,
+  providerPageUrl: 'https://music.youtube.com/watch?v=u9n7Cw-4_PE',
+  playbackType: 'video_embed',
+  isPlayable: true,
+  attributionText: 'Die For You by The Weeknd via YouTube Music (Verome)',
+};
+
+// Initial Up Next Queue matching the reference UI screenshot
+const INITIAL_QUEUE_TRACKS: QueueItem[] = [
+  {
+    id: 'q-1',
+    roomId: 'home-preview',
+    track: {
+      id: 'verome:LDY_XReBw9A',
+      provider: 'verome',
+      providerTrackId: 'LDY_XReBw9A',
+      title: 'Snooze',
+      artistName: 'SZA',
+      artworkUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop&q=80',
+      durationSeconds: 201,
+      providerPageUrl: 'https://music.youtube.com/watch?v=LDY_XReBw9A',
+      playbackType: 'video_embed',
+      isPlayable: true,
+    },
+    addedByUserId: 'user-system',
+    addedByName: 'VibeSync',
+    queuePosition: 1,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+  },
+  {
+    id: 'q-2',
+    roomId: 'home-preview',
+    track: {
+      id: 'verome:H5v3kku4y6Q',
+      provider: 'verome',
+      providerTrackId: 'H5v3kku4y6Q',
+      title: 'As It Was',
+      artistName: 'Harry Styles',
+      artworkUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop&q=80',
+      durationSeconds: 167,
+      providerPageUrl: 'https://music.youtube.com/watch?v=H5v3kku4y6Q',
+      playbackType: 'video_embed',
+      isPlayable: true,
+    },
+    addedByUserId: 'user-system',
+    addedByName: 'VibeSync',
+    queuePosition: 2,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+  },
+  {
+    id: 'q-3',
+    roomId: 'home-preview',
+    track: {
+      id: 'verome:G7KNmW9a75Y',
+      provider: 'verome',
+      providerTrackId: 'G7KNmW9a75Y',
+      title: 'Flowers',
+      artistName: 'Miley Cyrus',
+      artworkUrl: 'https://images.unsplash.com/photo-1524368535928-5b5e00ddc76b?w=200&h=200&fit=crop&q=80',
+      durationSeconds: 200,
+      providerPageUrl: 'https://music.youtube.com/watch?v=G7KNmW9a75Y',
+      playbackType: 'video_embed',
+      isPlayable: true,
+    },
+    addedByUserId: 'user-system',
+    addedByName: 'VibeSync',
+    queuePosition: 3,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+  },
+  {
+    id: 'q-4',
+    roomId: 'home-preview',
+    track: {
+      id: 'verome:ic8j13-tORs',
+      provider: 'verome',
+      providerTrackId: 'ic8j13-tORs',
+      title: 'Cruel Summer',
+      artistName: 'Taylor Swift',
+      artworkUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=200&h=200&fit=crop&q=80',
+      durationSeconds: 178,
+      providerPageUrl: 'https://music.youtube.com/watch?v=ic8j13-tORs',
+      playbackType: 'video_embed',
+      isPlayable: true,
+    },
+    addedByUserId: 'user-system',
+    addedByName: 'VibeSync',
+    queuePosition: 4,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+  },
+  {
+    id: 'q-5',
+    roomId: 'home-preview',
+    track: {
+      id: 'verome:WcIcVapfqXw',
+      provider: 'verome',
+      providerTrackId: 'WcIcVapfqXw',
+      title: 'Calm Down',
+      artistName: 'Rema',
+      artworkUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=200&h=200&fit=crop&q=80',
+      durationSeconds: 219,
+      providerPageUrl: 'https://music.youtube.com/watch?v=WcIcVapfqXw',
+      playbackType: 'video_embed',
+      isPlayable: true,
+    },
+    addedByUserId: 'user-system',
+    addedByName: 'VibeSync',
+    queuePosition: 5,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+  },
+];
+
+export default function HomePage() {
   const router = useRouter();
 
-  // Create Room modal state
+  // User session
+  const [session, setSession] = useState<GuestSession | null>(null);
+
+  // Home preview room state
+  const [playbackState, setPlaybackState] = useState<PlaybackState>({
+    roomId: 'home-preview',
+    provider: 'verome',
+    providerTrackId: DEFAULT_DIE_FOR_YOU_TRACK.providerTrackId,
+    track: DEFAULT_DIE_FOR_YOU_TRACK,
+    playbackStatus: 'paused',
+    basePositionSeconds: 84, // 1:24 as in screenshot!
+    updatedAtServer: new Date().toISOString(),
+    revision: 1,
+    updatedBy: 'system',
+    updatedByName: 'The Weeknd',
+  });
+
+  const [queue, setQueue] = useState<QueueItem[]>(INITIAL_QUEUE_TRACKS);
+  const [currentSeconds, setCurrentSeconds] = useState(84); // 1:24
+  const [totalDuration, setTotalDuration] = useState(260); // 4:20
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [localVolume, setLocalVolume] = useState(0.85);
+  const [isMuted, setIsMuted] = useState(false);
+
+  // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createRoomName, setCreateRoomName] = useState('Chill Vibes & Beats');
   const [createDisplayName, setCreateDisplayName] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Join Room modal state
   const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [joinDisplayName, setJoinDisplayName] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
 
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [activePlaylist, setActivePlaylist] = useState<string | null>(null);
+
+  // Mock presence listeners for the visual preview room
+  const presenceMembers: PresenceState[] = [
+    { userId: 'u-1', displayName: 'Maya', isOwner: true, onlineAt: new Date().toISOString() },
+    { userId: 'u-2', displayName: 'Alex', isOwner: false, onlineAt: new Date().toISOString() },
+    { userId: 'u-3', displayName: 'Jordan', isOwner: false, onlineAt: new Date().toISOString() },
+    { userId: 'u-4', displayName: 'Sam', isOwner: false, onlineAt: new Date().toISOString() },
+    { userId: 'u-5', displayName: 'Robin', isOwner: false, onlineAt: new Date().toISOString() },
+  ];
+
+  const previewRoom: Room = {
+    id: 'home-preview',
+    roomCode: 'VIBE01',
+    name: 'Vibe Room',
+    ownerId: 'u-1',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
   useEffect(() => {
-    const session = getLocalGuestSession();
-    if (session) {
-      setCreateDisplayName(session.displayName);
-      setJoinDisplayName(session.displayName);
+    const s = getLocalGuestSession();
+    if (s) {
+      setSession(s);
+      setCreateDisplayName(s.displayName);
+      setJoinDisplayName(s.displayName);
     }
   }, []);
 
+  // Playback Control Handlers
+  const handlePlay = () => {
+    setIsPlaying(true);
+    setPlaybackState((prev) => ({
+      ...prev,
+      playbackStatus: 'playing',
+      basePositionSeconds: currentSeconds,
+      updatedAtServer: new Date().toISOString(),
+      revision: prev.revision + 1,
+    }));
+  };
+
+  const handlePause = () => {
+    setIsPlaying(false);
+    setPlaybackState((prev) => ({
+      ...prev,
+      playbackStatus: 'paused',
+      basePositionSeconds: currentSeconds,
+      updatedAtServer: new Date().toISOString(),
+      revision: prev.revision + 1,
+    }));
+  };
+
+  const handleSeek = (pos: number) => {
+    setCurrentSeconds(pos);
+    setPlaybackState((prev) => ({
+      ...prev,
+      basePositionSeconds: pos,
+      updatedAtServer: new Date().toISOString(),
+      revision: prev.revision + 1,
+    }));
+  };
+
+  const handleSelectTrack = (track: NormalizedTrack) => {
+    setPlaybackState({
+      roomId: 'home-preview',
+      provider: track.provider,
+      providerTrackId: track.providerTrackId,
+      track,
+      playbackStatus: 'playing',
+      basePositionSeconds: 0,
+      updatedAtServer: new Date().toISOString(),
+      revision: playbackState.revision + 1,
+      updatedBy: session?.userId || 'guest',
+      updatedByName: session?.displayName || 'Listener',
+    });
+    setCurrentSeconds(0);
+    setTotalDuration(track.durationSeconds || 240);
+    setIsPlaying(true);
+  };
+
+  const handleSkipNext = () => {
+    if (queue.length > 0) {
+      const nextItem = queue[0];
+      const remaining = queue.slice(1);
+      setQueue(remaining);
+      handleSelectTrack(nextItem.track);
+    }
+  };
+
+  const handleSkipPrev = () => {
+    handleSeek(0);
+  };
+
+  const handleTrackEnded = () => {
+    handleSkipNext();
+  };
+
+  // Create Room Action
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createRoomName.trim() || !createDisplayName.trim()) {
@@ -54,14 +299,14 @@ export default function LandingPage() {
     setCreateError(null);
 
     try {
-      const session = generateOrGetGuestSession(createDisplayName.trim());
+      const guestSession = generateOrGetGuestSession(createDisplayName.trim());
       const res = await fetch('/api/rooms/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: createRoomName.trim(),
-          displayName: session.displayName,
-          userId: session.userId,
+          displayName: guestSession.displayName,
+          userId: guestSession.userId,
         }),
       });
 
@@ -77,6 +322,7 @@ export default function LandingPage() {
     }
   };
 
+  // Join Room Action
   const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim() || !joinDisplayName.trim()) {
@@ -88,7 +334,7 @@ export default function LandingPage() {
     setJoinError(null);
 
     try {
-      const session = generateOrGetGuestSession(joinDisplayName.trim());
+      const guestSession = generateOrGetGuestSession(joinDisplayName.trim());
       const cleanCode = joinCode.trim().toUpperCase();
 
       const res = await fetch('/api/rooms/join', {
@@ -96,8 +342,8 @@ export default function LandingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomCode: cleanCode,
-          displayName: session.displayName,
-          userId: session.userId,
+          displayName: guestSession.displayName,
+          userId: guestSession.userId,
         }),
       });
 
@@ -114,146 +360,62 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface-950 text-neutral-100 selection:bg-purple-600 selection:text-white">
-      <Navbar />
+    <LiquidGlassLayout
+      session={session}
+      room={previewRoom}
+      playbackState={playbackState}
+      queue={queue}
+      presenceMembers={presenceMembers}
+      currentSeconds={currentSeconds}
+      totalDuration={totalDuration}
+      isPlaying={isPlaying}
+      isBuffering={isBuffering}
+      localVolume={localVolume}
+      isMuted={isMuted}
+      onPlay={handlePlay}
+      onPause={handlePause}
+      onSeek={handleSeek}
+      onSkipNext={handleSkipNext}
+      onSkipPrev={handleSkipPrev}
+      onSelectTrack={handleSelectTrack}
+      onRemoveQueueItem={(itemId) =>
+        setQueue((prev) => prev.filter((item) => item.id !== itemId))
+      }
+      onVolumeChange={(vol) => {
+        setLocalVolume(vol);
+        if (isMuted && vol > 0) setIsMuted(false);
+      }}
+      onToggleMute={() => setIsMuted((prev) => !prev)}
+      onOpenCreateRoom={() => setIsCreateOpen(true)}
+      onOpenJoinRoom={() => setIsJoinOpen(true)}
+      onOpenSearch={() => setIsSearchModalOpen(true)}
+      onLeaveRoom={() => setIsCreateOpen(true)}
+      onTrackEnded={handleTrackEnded}
+      onTimeUpdate={(curr, dur) => {
+        setCurrentSeconds(curr);
+        if (dur > 0) setTotalDuration(dur);
+      }}
+      onBufferingChange={(buff) => setIsBuffering(buff)}
+      activePlaylist={activePlaylist}
+      onSelectPlaylist={(pl) => {
+        setActivePlaylist(pl);
+        setIsSearchModalOpen(true);
+      }}
+    >
+      {/* 1. Hero Banner */}
+      <HeroBanner
+        onCreateRoom={() => setIsCreateOpen(true)}
+        onJoinRoom={() => setIsJoinOpen(true)}
+      />
 
-      <main className="flex-1">
-        {/* HERO SECTION */}
-        <section className="relative pt-20 pb-28 px-4 sm:px-6 overflow-hidden">
-          {/* Ambient Lighting Gradients */}
-          <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-gradient-to-tr from-purple-700/25 via-indigo-600/20 to-cyan-500/15 blur-[120px] rounded-full pointer-events-none" />
+      {/* 2. Made for You and Recently Played Music Discovery Cards */}
+      <DiscoverySections
+        onPlayTrack={handleSelectTrack}
+        onOpenSearch={() => setIsSearchModalOpen(true)}
+        activeTrackId={playbackState.track?.id}
+      />
 
-          <div className="max-w-5xl mx-auto text-center space-y-8 relative z-10">
-            {/* Pill Announcement */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-900 border border-purple-500/30 text-xs font-semibold text-purple-300 shadow-glow-purple">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>Real-time collaborative listening with zero subscriptions</span>
-            </div>
-
-            {/* Main Headline */}
-            <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.1]">
-              Listen together with friends in <br />
-              <span className="text-gradient">perfect harmony</span>
-            </h1>
-
-            {/* Subtitle */}
-            <p className="text-base sm:text-xl text-neutral-300 max-w-2xl mx-auto leading-relaxed">
-              Create a listening room in seconds. Anyone can search for songs, queue tracks, pause, and seek. Stream legally and synchronously from open catalogs worldwide.
-            </p>
-
-            {/* Primary Action Buttons */}
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-              <Button
-                size="lg"
-                variant="primary"
-                onClick={() => setIsCreateOpen(true)}
-                className="w-full sm:w-auto text-base"
-              >
-                <Radio className="w-5 h-5 mr-2" />
-                Create a Room
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-
-              <Button
-                size="lg"
-                variant="secondary"
-                onClick={() => setIsJoinOpen(true)}
-                className="w-full sm:w-auto text-base"
-              >
-                <Users className="w-5 h-5 mr-2 text-indigo-400" />
-                Join with Room Code
-              </Button>
-            </div>
-
-            {/* Quick Demo Card Preview */}
-            <div className="pt-12 max-w-3xl mx-auto">
-              <div className="p-6 rounded-2xl bg-surface-900/90 border border-surface-800 shadow-2xl backdrop-blur-xl flex flex-col sm:flex-row items-center justify-between gap-6">
-                <div className="flex items-center gap-4 text-left">
-                  <div className="relative w-16 h-16 rounded-xl bg-purple-950 border border-purple-500/30 overflow-hidden flex items-center justify-center shrink-0">
-                    <Disc3 className="w-8 h-8 text-purple-400 animate-spin" style={{ animationDuration: '6s' }} />
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-purple-400">
-                      Now Synchronizing
-                    </span>
-                    <h3 className="text-base font-bold text-white">Picnic Electronic Music</h3>
-                    <p className="text-xs text-neutral-400">Guido Santiago &bull; Audius Catalog</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="flex -space-x-2">
-                    <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-xs font-bold ring-2 ring-surface-900">
-                      A
-                    </div>
-                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold ring-2 ring-surface-900">
-                      V
-                    </div>
-                    <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-xs font-bold ring-2 ring-surface-900">
-                      S
-                    </div>
-                  </div>
-                  <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Synchronized
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* FEATURE HIGHLIGHTS */}
-        <section className="py-20 px-4 sm:px-6 border-t border-surface-800/80 bg-surface-950/60">
-          <div className="max-w-6xl mx-auto space-y-12">
-            <div className="text-center space-y-3">
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-                Engineered for collaborative listening
-              </h2>
-              <p className="text-sm text-neutral-400 max-w-xl mx-auto">
-                Not just another playlist sharing app. VibeSync coordinates playback events and position across independent devices.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Card 1 */}
-              <div className="p-6 rounded-2xl bg-surface-900/80 border border-surface-800 space-y-3">
-                <div className="w-10 h-10 rounded-xl bg-purple-950/80 border border-purple-800/40 flex items-center justify-center text-purple-400">
-                  <Radio className="w-5 h-5" />
-                </div>
-                <h3 className="text-base font-semibold text-white">Drift-Corrected Playback</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Best-effort audio synchronization calculates server elapsed time, corrects network drift smoothly, and gets new listeners on the exact same second.
-                </p>
-              </div>
-
-              {/* Card 2 */}
-              <div className="p-6 rounded-2xl bg-surface-900/80 border border-surface-800 space-y-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-950/80 border border-blue-800/40 flex items-center justify-center text-blue-400">
-                  <Sliders className="w-5 h-5" />
-                </div>
-                <h3 className="text-base font-semibold text-white">Democratic Controls</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Every participant can pause, seek, and add songs to the shared queue by default. Everyone contributes to the session vibes.
-                </p>
-              </div>
-
-              {/* Card 3 */}
-              <div className="p-6 rounded-2xl bg-surface-900/80 border border-surface-800 space-y-3">
-                <div className="w-10 h-10 rounded-xl bg-cyan-950/80 border border-cyan-800/40 flex items-center justify-center text-cyan-400">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <h3 className="text-base font-semibold text-white">Open Music Catalogs</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Integrated with authorized Audius and YouTube catalogs. Free for every participant without paywalls or mandatory paid subscriptions.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      {/* CREATE ROOM MODAL */}
+      {/* Create Room Modal */}
       <Modal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
@@ -300,7 +462,7 @@ export default function LandingPage() {
         </form>
       </Modal>
 
-      {/* JOIN ROOM MODAL */}
+      {/* Join Room Modal */}
       <Modal
         isOpen={isJoinOpen}
         onClose={() => setIsJoinOpen(false)}
@@ -348,7 +510,26 @@ export default function LandingPage() {
         </form>
       </Modal>
 
-      <Footer />
-    </div>
+      {/* Music Search Modal */}
+      <MusicSearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onSelectTrack={handleSelectTrack}
+        onAddToQueue={(track) => {
+          const newItem: QueueItem = {
+            id: `q-${Date.now()}`,
+            roomId: 'home-preview',
+            track,
+            addedByUserId: session?.userId || 'guest',
+            addedByName: session?.displayName || 'Listener',
+            queuePosition: queue.length + 1,
+            createdAt: new Date().toISOString(),
+            status: 'pending',
+          };
+          setQueue((prev) => [...prev, newItem]);
+        }}
+        currentTrackId={playbackState.track?.id}
+      />
+    </LiquidGlassLayout>
   );
 }

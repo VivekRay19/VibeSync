@@ -90,13 +90,13 @@ describe('Zod Validation Schemas', () => {
   });
 
   describe('SearchTracksSchema', () => {
-    it('accepts valid query and defaults provider to all', () => {
+    it('accepts valid query and defaults provider to verome', () => {
       const result = SearchTracksSchema.safeParse({
         query: 'electronic chill',
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.provider).toBe('all');
+        expect(result.data.provider).toBe('verome');
         expect(result.data.page).toBe(1);
       }
     });

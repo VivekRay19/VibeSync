@@ -42,6 +42,8 @@ export interface PlaybackState {
   updatedBy: string; // user id or display name
   updatedByName?: string;
   currentQueueItemId?: string | null;
+  commandId?: string;
+  scheduledAt?: number | null;
 }
 
 export interface QueueItem {

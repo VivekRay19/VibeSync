@@ -12,7 +12,7 @@ export const JoinRoomSchema = z.object({
 
 export const SearchTracksSchema = z.object({
   query: z.string().trim().min(1, 'Search query cannot be empty').max(100, 'Search query is too long'),
-  provider: z.enum(['all', 'audius', 'youtube', 'verome']).default('all'),
+  provider: z.enum(['all', 'audius', 'youtube', 'verome']).default('verome'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
@@ -34,12 +34,14 @@ export const TrackSchema = z.object({
 });
 
 export const PlaybackCommandSchema = z.object({
+  commandId: z.string().optional(),
   roomId: z.string().uuid('Invalid room ID'),
   command: z.enum(['PLAY', 'PAUSE', 'RESUME', 'SEEK', 'SELECT_TRACK', 'SKIP_NEXT', 'SKIP_PREV']),
   positionSeconds: z.number().nonnegative().optional().default(0),
   revision: z.number().int().nonnegative(),
   track: TrackSchema.optional(),
   queueItemId: z.string().optional().nullable(),
+  scheduledAt: z.number().optional(),
 });
 
 export const QueueActionSchema = z.object({

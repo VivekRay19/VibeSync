@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { roomId, command, positionSeconds, revision, track, queueItemId } = validation.data;
+    const { roomId, command, positionSeconds, revision, track, queueItemId, commandId, scheduledAt } = validation.data;
 
     // Derive identity from signed session or fallback to provided identity
     const session = getAuthenticatedUser();
@@ -32,10 +32,12 @@ export async function POST(req: NextRequest) {
       queueItemId,
       userId,
       displayName,
+      commandId,
+      scheduledAt,
     });
 
     // Real-time broadcast to all connected room listeners
-    broadcastToRoom(roomId, 'PLAYBACK_STATE', { state: updatedState });
+    broadcastToRoom(roomId, 'PLAYBACK_STATE', { state: updatedState, commandId });
 
     // If skip occurred, queue also mutated, broadcast updated queue
     if (command === 'SKIP_NEXT') {

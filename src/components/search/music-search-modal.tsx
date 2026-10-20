@@ -24,7 +24,7 @@ export function MusicSearchModal({
   currentTrackId,
 }: MusicSearchModalProps) {
   const [query, setQuery] = useState('');
-  const [provider, setProvider] = useState<MusicProviderId | 'all'>('all');
+  const [provider, setProvider] = useState<MusicProviderId | 'all'>('verome');
   const [results, setResults] = useState<NormalizedTrack[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -34,6 +34,18 @@ export function MusicSearchModal({
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const suggestionTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize provider preference from localStorage or default to 'verome'
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vibesync_search_provider') as MusicProviderId | 'all';
+      if (saved && ['verome', 'youtube', 'audius', 'all'].includes(saved)) {
+        setProvider(saved);
+      } else {
+        setProvider('verome');
+      }
+    }
+  }, [isOpen]);
 
   // Autocomplete suggestions
   useEffect(() => {
@@ -170,23 +182,27 @@ export function MusicSearchModal({
         {/* Provider tabs */}
         <div className="flex items-center gap-2 pb-1 border-b border-surface-800 text-xs overflow-x-auto">
           <span className="text-neutral-400 mr-1 shrink-0">Catalog:</span>
-          {(['all', 'verome', 'audius', 'youtube'] as const).map((p) => (
+          {([
+            { id: 'verome', label: 'YouTube Music · Verome' },
+            { id: 'youtube', label: 'YouTube · Verome' },
+            { id: 'audius', label: 'Audius' },
+            { id: 'all', label: 'All Sources' },
+          ] as const).map((opt) => (
             <button
-              key={p}
-              onClick={() => setProvider(p)}
+              key={opt.id}
+              onClick={() => {
+                setProvider(opt.id);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('vibesync_search_provider', opt.id);
+                }
+              }}
               className={`px-3 py-1 rounded-lg font-medium transition-colors shrink-0 ${
-                provider === p
+                provider === opt.id
                   ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-surface-800'
               }`}
             >
-              {p === 'all'
-                ? 'All Providers'
-                : p === 'verome'
-                  ? 'YouTube Music'
-                  : p === 'audius'
-                    ? 'Audius'
-                    : 'YouTube'}
+              {opt.label}
             </button>
           ))}
         </div>

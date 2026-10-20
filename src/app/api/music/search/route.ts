@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('query') || '';
-    const provider = (searchParams.get('provider') || 'all') as 'all' | MusicProviderId;
+    const provider = (searchParams.get('provider') || 'verome') as 'all' | MusicProviderId;
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '20', 10);
 

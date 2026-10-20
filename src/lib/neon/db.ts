@@ -282,6 +282,18 @@ export async function joinRoom(
   return { room, playbackState, members, queue };
 }
 
+// In-memory idempotency cache for duplicate command protection
+const commandIdempotencyCache = new Map<string, { state: PlaybackState; timestamp: number }>();
+
+function cleanCommandCache() {
+  const now = Date.now();
+  commandIdempotencyCache.forEach((entry, id) => {
+    if (now - entry.timestamp > 30000) {
+      commandIdempotencyCache.delete(id);
+    }
+  });
+}
+
 export async function updatePlaybackCommand(params: {
   roomId: string;
   command: string;
@@ -291,9 +303,21 @@ export async function updatePlaybackCommand(params: {
   queueItemId?: string | null;
   userId: string;
   displayName: string;
+  commandId?: string;
+  scheduledAt?: number;
 }): Promise<PlaybackState> {
+  const { roomId, command, positionSeconds, track, queueItemId, userId, displayName, commandId, scheduledAt } = params;
+
+  // Check idempotency cache to prevent duplicate command processing
+  if (commandId) {
+    cleanCommandCache();
+    const cached = commandIdempotencyCache.get(commandId);
+    if (cached) {
+      return cached.state;
+    }
+  }
+
   const sql = getDb();
-  const { roomId, command, positionSeconds, track, queueItemId, userId, displayName } = params;
 
   // Fetch current state
   const currentRows = await sql`
@@ -385,7 +409,7 @@ export async function updatePlaybackCommand(params: {
   }
 
   const raw = updatedRows[0];
-  return {
+  const state: PlaybackState = {
     id: raw.id,
     roomId: raw.room_id,
     provider: raw.provider_id,
@@ -398,7 +422,15 @@ export async function updatePlaybackCommand(params: {
     updatedBy: raw.updated_by,
     updatedByName: raw.updated_by_name,
     currentQueueItemId: raw.current_queue_item_id || null,
+    commandId,
+    scheduledAt: scheduledAt || null,
   };
+
+  if (commandId) {
+    commandIdempotencyCache.set(commandId, { state, timestamp: Date.now() });
+  }
+
+  return state;
 }
 
 export async function getQueue(roomId: string): Promise<QueueItem[]> {

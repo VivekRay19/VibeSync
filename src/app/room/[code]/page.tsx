@@ -2,15 +2,12 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Navbar } from '@/components/navigation/navbar';
-import { Footer } from '@/components/navigation/footer';
+import { LiquidGlassLayout } from '@/components/layout/liquid-glass-layout';
 import { RoomHeader } from '@/components/room/room-header';
-import { AudioPlayer } from '@/components/player/audio-player';
-import { YouTubePlayer } from '@/components/player/youtube-player';
-import { PlayerControls } from '@/components/player/player-controls';
-import { SharedQueue } from '@/components/queue/shared-queue';
 import { ParticipantList } from '@/components/room/participant-list';
+import { SharedQueue } from '@/components/queue/shared-queue';
 import { MusicSearchModal } from '@/components/search/music-search-modal';
+import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,7 +23,8 @@ import {
   getLocalGuestSession,
   GuestSession,
 } from '@/lib/auth/client';
-import { Loader2, AlertCircle, Headphones } from 'lucide-react';
+import { syncEngine } from '@/lib/sync/engine';
+import { Loader2, AlertCircle, Headphones, Radio, Users } from 'lucide-react';
 
 export default function RoomPage() {
   const params = useParams();
@@ -46,10 +44,10 @@ export default function RoomPage() {
   const [presenceMembers, setPresenceMembers] = useState<PresenceState[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
 
-  // Local audio state
+  // Local audio/video state
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [localVolume, setLocalVolume] = useState(0.8);
+  const [localVolume, setLocalVolume] = useState(0.85);
   const [isMuted, setIsMuted] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [driftStatus, setDriftStatus] = useState<string | null>(null);
@@ -59,10 +57,25 @@ export default function RoomPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Cross-tab broadcast channel for local multi-user testing
-  const tabBroadcastRef = useRef<BroadcastChannel | null>(null);
+  // Modals for Create and Join from sidebar/topbar
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [createRoomName, setCreateRoomName] = useState('Chill Vibes & Beats');
+  const [createDisplayName, setCreateDisplayName] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  // Initialize guest session and volume
+  const [isJoinOpen, setIsJoinOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
+  const [joinDisplayName, setJoinDisplayName] = useState('');
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  // Cross-tab broadcast channel
+  const tabBroadcastRef = useRef<BroadcastChannel | null>(null);
+  const lastProcessedCommandIdRef = useRef<string | null>(null);
+  const isSseConnectedRef = useRef(false);
+
+  // Initialize session and volume
   useEffect(() => {
     const savedVol = localStorage.getItem('vibesync_local_volume');
     if (savedVol) {
@@ -72,12 +85,16 @@ export default function RoomPage() {
     const currentSession = getLocalGuestSession();
     if (currentSession) {
       setSession(currentSession);
+      setCreateDisplayName(currentSession.displayName);
+      setJoinDisplayName(currentSession.displayName);
     } else {
       setNeedsNamePrompt(true);
     }
+
+    // Active NTP clock calibration
+    syncEngine.syncServerClock();
   }, []);
 
-  // Save volume changes locally
   const handleVolumeChange = (vol: number) => {
     setLocalVolume(vol);
     if (isMuted && vol > 0) setIsMuted(false);
@@ -113,6 +130,12 @@ export default function RoomPage() {
       setPlaybackState(data.playbackState);
       setMembers(data.members || []);
       setQueue(data.queue || []);
+
+      if (data.playbackState) {
+        const expected = syncEngine.calculateExpectedPosition(data.playbackState);
+        setCurrentTime(expected);
+        setDuration(data.playbackState.track?.durationSeconds || 240);
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Error joining room');
     } finally {
@@ -126,13 +149,13 @@ export default function RoomPage() {
     }
   }, [session, needsNamePrompt, loadRoom]);
 
-  // Set up Server-Sent Events (SSE) stream & Browser BroadcastChannel
+  // Set up Server-Sent Events (SSE) stream & BroadcastChannel
   useEffect(() => {
     if (!room || !session) return;
 
     const channelName = `vibesync_room_${room.id}`;
 
-    // 1. Browser BroadcastChannel for instant local multi-tab sync
+    // 1. Browser BroadcastChannel for instant local multi-tab zero-latency sync
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       const tabChannel = new BroadcastChannel(channelName);
       tabBroadcastRef.current = tabChannel;
@@ -158,6 +181,10 @@ export default function RoomPage() {
     const eventUrl = `/api/rooms/events?roomId=${encodeURIComponent(room.id)}&userId=${encodeURIComponent(session.userId)}&displayName=${encodeURIComponent(session.displayName)}`;
     const eventSource = new EventSource(eventUrl);
 
+    eventSource.onopen = () => {
+      isSseConnectedRef.current = true;
+    };
+
     eventSource.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data);
@@ -165,6 +192,13 @@ export default function RoomPage() {
 
         if (type === 'PLAYBACK_STATE' && payload?.state) {
           const incoming = payload.state as PlaybackState;
+          const cmdId = payload.commandId;
+
+          // Deduplicate our own command if already processed locally
+          if (cmdId && cmdId === lastProcessedCommandIdRef.current) {
+            return;
+          }
+
           setPlaybackState((prev) => {
             if (!prev || incoming.revision >= prev.revision) {
               return incoming;
@@ -212,16 +246,48 @@ export default function RoomPage() {
     };
 
     eventSource.onerror = (err) => {
-      console.warn('SSE connection interrupted, browser will auto-reconnect:', err);
+      isSseConnectedRef.current = false;
+      console.warn('SSE connection interrupted, will auto-reconnect:', err);
     };
 
+    // 3. Resilient fallback polling every 4 seconds in case SSE stream is cut (e.g. mobile lock)
+    const fallbackPoll = setInterval(async () => {
+      if (!isSseConnectedRef.current && session) {
+        try {
+          const res = await fetch('/api/rooms/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              roomCode,
+              displayName: session.displayName,
+              userId: session.userId,
+            }),
+          });
+          if (res.ok) {
+            const freshData = await res.json();
+            if (freshData.playbackState) {
+              setPlaybackState((prev) => {
+                if (!prev || freshData.playbackState.revision > prev.revision) {
+                  return freshData.playbackState;
+                }
+                return prev;
+              });
+            }
+          }
+        } catch {
+          // Keep trying
+        }
+      }
+    }, 4000);
+
     return () => {
+      clearInterval(fallbackPoll);
       if (tabBroadcastRef.current) {
         tabBroadcastRef.current.close();
       }
       eventSource.close();
     };
-  }, [room, session, router]);
+  }, [room, session, roomCode, router]);
 
   // Execute playback command via API and broadcast
   const sendPlaybackCommand = async (
@@ -231,6 +297,46 @@ export default function RoomPage() {
     queueItemId?: string | null
   ) => {
     if (!room || !playbackState || !session) return;
+
+    const commandId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    lastProcessedCommandIdRef.current = commandId;
+
+    // Optimistic UI update
+    if (command === 'PAUSE') {
+      setPlaybackState((prev) =>
+        prev
+          ? {
+              ...prev,
+              playbackStatus: 'paused',
+              basePositionSeconds: positionSeconds,
+              revision: prev.revision + 1,
+            }
+          : null
+      );
+    } else if (command === 'PLAY' || command === 'RESUME') {
+      setPlaybackState((prev) =>
+        prev
+          ? {
+              ...prev,
+              playbackStatus: 'playing',
+              basePositionSeconds: positionSeconds,
+              updatedAtServer: new Date().toISOString(),
+              revision: prev.revision + 1,
+            }
+          : null
+      );
+    } else if (command === 'SEEK') {
+      setPlaybackState((prev) =>
+        prev
+          ? {
+              ...prev,
+              basePositionSeconds: positionSeconds,
+              updatedAtServer: new Date().toISOString(),
+              revision: prev.revision + 1,
+            }
+          : null
+      );
+    }
 
     try {
       const res = await fetch('/api/rooms/command', {
@@ -245,6 +351,7 @@ export default function RoomPage() {
           queueItemId,
           userId: session.userId,
           displayName: session.displayName,
+          commandId,
         }),
       });
 
@@ -275,13 +382,8 @@ export default function RoomPage() {
   const handleSeek = (pos: number) => sendPlaybackCommand('SEEK', pos);
   const handleSelectTrack = (track: NormalizedTrack) =>
     sendPlaybackCommand('SELECT_TRACK', 0, track);
-
   const handleSkipNext = () => sendPlaybackCommand('SKIP_NEXT', 0);
-
-  // Track ended handler (advance queue once)
-  const handleTrackEnded = () => {
-    sendPlaybackCommand('SKIP_NEXT', 0);
-  };
+  const handleTrackEnded = () => sendPlaybackCommand('SKIP_NEXT', 0);
 
   // Queue actions
   const handleAddToQueue = async (track: NormalizedTrack) => {
@@ -408,92 +510,190 @@ export default function RoomPage() {
     setTimeout(() => setDriftStatus(null), 3000);
   };
 
-  // Name prompt modal for first-time direct invite link visitors
+  // Create room form submission from modal
+  const handleCreateRoomSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createRoomName.trim() || !createDisplayName.trim()) {
+      setCreateError('Please enter a room name and your display name');
+      return;
+    }
+
+    setCreateLoading(true);
+    setCreateError(null);
+
+    try {
+      const guestSession = generateOrGetGuestSession(createDisplayName.trim());
+      const res = await fetch('/api/rooms/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: createRoomName.trim(),
+          displayName: guestSession.displayName,
+          userId: guestSession.userId,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Failed to create room');
+      }
+
+      setIsCreateOpen(false);
+      router.push(`/room/${data.room.roomCode}`);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Error creating room');
+      setCreateLoading(false);
+    }
+  };
+
+  // Join room form submission from modal
+  const handleJoinRoomSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCode.trim() || !joinDisplayName.trim()) {
+      setJoinError('Please provide both room code and your display name');
+      return;
+    }
+
+    setJoinLoading(true);
+    setJoinError(null);
+
+    try {
+      const guestSession = generateOrGetGuestSession(joinDisplayName.trim());
+      const cleanCode = joinCode.trim().toUpperCase();
+
+      const res = await fetch('/api/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: cleanCode,
+          displayName: guestSession.displayName,
+          userId: guestSession.userId,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Could not find or join room');
+      }
+
+      setIsJoinOpen(false);
+      router.push(`/room/${cleanCode}`);
+    } catch (err) {
+      setJoinError(err instanceof Error ? err.message : 'Invalid room code');
+      setJoinLoading(false);
+    }
+  };
+
+  // 1. Name prompt modal for first-time direct invite link visitors
   if (needsNamePrompt) {
     return (
-      <div className="min-h-screen flex flex-col bg-surface-950 text-neutral-100">
-        <Navbar />
-        <main className="flex-1 flex items-center justify-center p-4">
-          <div className="w-full max-w-md p-8 rounded-2xl bg-surface-900 border border-surface-800 shadow-2xl space-y-6 text-center">
-            <div className="w-12 h-12 rounded-full bg-purple-950 border border-purple-500/40 flex items-center justify-center mx-auto text-purple-400">
-              <Headphones className="w-6 h-6" />
-            </div>
-            <div className="space-y-1.5">
-              <h2 className="text-xl font-bold text-white">Join Listening Session</h2>
-              <p className="text-xs text-neutral-400">
-                You were invited to room <strong className="text-purple-300 font-mono">{roomCode}</strong>.
-                Choose a display name so others can see you in the room.
-              </p>
-            </div>
-            <form onSubmit={handleSaveDisplayName} className="space-y-4">
-              <Input
-                label="Your Display Name"
-                value={displayNameInput}
-                onChange={(e) => setDisplayNameInput(e.target.value)}
-                placeholder="e.g. Robin, Taylor"
-                required
-                autoFocus
-              />
-              <Button type="submit" variant="primary" className="w-full">
-                Enter Listening Room
-              </Button>
-            </form>
+      <div className="min-h-screen flex flex-col bg-[#07080E] text-white items-center justify-center p-4">
+        <div className="w-full max-w-md p-8 rounded-3xl glass-panel shadow-liquid-panel space-y-6 text-center border border-white/[0.1]">
+          <div className="w-12 h-12 rounded-2xl bg-purple-600/30 border border-purple-500/40 flex items-center justify-center mx-auto text-purple-300 shadow-glow-purple">
+            <Headphones className="w-6 h-6" />
           </div>
-        </main>
+          <div className="space-y-1.5">
+            <h2 className="text-xl font-bold text-white tracking-tight">Join Listening Session</h2>
+            <p className="text-xs text-neutral-400">
+              You were invited to room <strong className="text-purple-300 font-mono">{roomCode}</strong>.
+              Choose a display name so friends can see you.
+            </p>
+          </div>
+          <form onSubmit={handleSaveDisplayName} className="space-y-4">
+            <Input
+              label="Your Display Name"
+              value={displayNameInput}
+              onChange={(e) => setDisplayNameInput(e.target.value)}
+              placeholder="e.g. Robin, Taylor"
+              required
+              autoFocus
+            />
+            <Button type="submit" variant="primary" className="w-full">
+              Enter Listening Room
+            </Button>
+          </form>
+        </div>
       </div>
     );
   }
 
-  // Loading state
+  // 2. Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen flex flex-col bg-surface-950 text-neutral-100">
-        <Navbar currentRoomCode={roomCode} />
-        <main className="flex-1 flex flex-col items-center justify-center p-6 space-y-4 text-center">
-          <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
-          <p className="text-sm font-medium text-neutral-300">Synchronizing room state...</p>
-        </main>
+      <div className="min-h-screen flex flex-col bg-[#07080E] text-white items-center justify-center p-6 space-y-4 text-center">
+        <Loader2 className="w-9 h-9 text-purple-400 animate-spin" />
+        <p className="text-sm font-semibold text-neutral-300 tracking-wide">
+          Synchronizing with Room {roomCode}...
+        </p>
       </div>
     );
   }
 
-  // Error state (invalid code, closed room, network failure)
+  // 3. Error state
   if (errorMessage || !room || !playbackState) {
     return (
-      <div className="min-h-screen flex flex-col bg-surface-950 text-neutral-100">
-        <Navbar />
-        <main className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-md p-8 rounded-2xl bg-surface-900 border border-surface-800 text-center space-y-5">
-            <div className="w-12 h-12 rounded-full bg-rose-950/60 border border-rose-800/40 flex items-center justify-center mx-auto text-rose-400">
-              <AlertCircle className="w-6 h-6" />
-            </div>
-            <div className="space-y-1.5">
-              <h2 className="text-xl font-bold text-white">Unable to Enter Room</h2>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                {errorMessage || 'This room code is invalid, or the host has closed the room.'}
-              </p>
-            </div>
-            <div className="flex justify-center gap-3 pt-2">
-              <Button variant="secondary" onClick={() => router.push('/')}>
-                Back to Home
-              </Button>
-              <Button variant="primary" onClick={() => session && loadRoom(session)}>
-                Retry
-              </Button>
-            </div>
+      <div className="min-h-screen flex flex-col bg-[#07080E] text-white items-center justify-center p-6">
+        <div className="w-full max-w-md p-8 rounded-3xl glass-panel text-center space-y-5 border border-white/[0.1]">
+          <div className="w-12 h-12 rounded-full bg-rose-950/60 border border-rose-800/40 flex items-center justify-center mx-auto text-rose-400">
+            <AlertCircle className="w-6 h-6" />
           </div>
-        </main>
+          <div className="space-y-1.5">
+            <h2 className="text-xl font-bold text-white">Unable to Enter Room</h2>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              {errorMessage || 'This room code is invalid, or the host has closed the room.'}
+            </p>
+          </div>
+          <div className="flex justify-center gap-3 pt-2">
+            <Button variant="secondary" onClick={() => router.push('/')}>
+              Back to Home
+            </Button>
+            <Button variant="primary" onClick={() => session && loadRoom(session)}>
+              Retry
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
 
   const isRoomOwner = Boolean(session && room.ownerId === session.userId);
+  const isPlaying = playbackState.playbackStatus === 'playing';
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface-950 text-neutral-100">
-      <Navbar currentRoomCode={room.roomCode} currentRoomName={room.name} />
-
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+    <LiquidGlassLayout
+      session={session}
+      room={room}
+      playbackState={playbackState}
+      queue={queue}
+      presenceMembers={presenceMembers}
+      currentSeconds={currentTime}
+      totalDuration={duration}
+      isPlaying={isPlaying}
+      isBuffering={isBuffering}
+      localVolume={localVolume}
+      isMuted={isMuted}
+      onPlay={handlePlay}
+      onPause={handlePause}
+      onSeek={handleSeek}
+      onSkipNext={handleSkipNext}
+      onSkipPrev={() => handleSeek(0)}
+      onSelectTrack={handleSelectTrack}
+      onRemoveQueueItem={handleRemoveQueueItem}
+      onVolumeChange={handleVolumeChange}
+      onToggleMute={handleToggleMute}
+      onOpenCreateRoom={() => setIsCreateOpen(true)}
+      onOpenJoinRoom={() => setIsJoinOpen(true)}
+      onOpenSearch={() => setIsSearchOpen(true)}
+      onLeaveRoom={handleLeaveRoom}
+      onTrackEnded={handleTrackEnded}
+      onDriftCorrected={handleDriftCorrected}
+      onBufferingChange={setIsBuffering}
+      onTimeUpdate={(curr, dur) => {
+        setCurrentTime(curr);
+        if (dur > 0) setDuration(dur);
+      }}
+    >
+      <div className="space-y-6">
         {/* ROOM HEADER */}
         <RoomHeader
           roomName={room.name}
@@ -503,59 +703,53 @@ export default function RoomPage() {
           onCloseRoom={handleCloseRoom}
         />
 
-        {/* MAIN MULTI-COLUMN LISTENING ROOM LAYOUT */}
+        {/* MAIN ROOM INTERACTIVE GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left / Center Column: Player Controls & Visualizer (7 cols) */}
+          {/* Main Visualizer / Shared Player Focus (7 cols) */}
           <div className="lg:col-span-7 space-y-6">
-            {/* Provider-aware Synchronization Engine & Media Player */}
-            {playbackState.track &&
-            (playbackState.track.playbackType === 'video_embed' ||
-              playbackState.provider === 'youtube' ||
-              playbackState.provider === 'verome' ||
-              playbackState.track.provider === 'youtube' ||
-              playbackState.track.provider === 'verome') ? (
-              <YouTubePlayer
-                playbackState={playbackState}
-                onTrackEnded={handleTrackEnded}
-                onDriftCorrected={handleDriftCorrected}
-                onBufferingChange={setIsBuffering}
-                onTimeUpdate={(curr, dur) => {
-                  setCurrentTime(curr);
-                  setDuration(dur);
-                }}
-                localVolume={localVolume}
-                isMuted={isMuted}
-              />
-            ) : (
-              <AudioPlayer
-                playbackState={playbackState}
-                onTrackEnded={handleTrackEnded}
-                onDriftCorrected={handleDriftCorrected}
-                onBufferingChange={setIsBuffering}
-                onTimeUpdate={(curr, dur) => {
-                  setCurrentTime(curr);
-                  setDuration(dur);
-                }}
-                localVolume={localVolume}
-                isMuted={isMuted}
-              />
-            )}
-            <PlayerControls
-              playbackState={playbackState}
-              currentSeconds={currentTime}
-              totalDuration={duration}
-              onPlay={handlePlay}
-              onPause={handlePause}
-              onSeek={handleSeek}
-              onSkipNext={handleSkipNext}
-              onOpenSearch={() => setIsSearchOpen(true)}
-              localVolume={localVolume}
-              onVolumeChange={handleVolumeChange}
-              isMuted={isMuted}
-              onToggleMute={handleToggleMute}
-              isBuffering={isBuffering}
-              driftStatus={driftStatus}
-            />
+            {/* Embedded Player Visual Frame */}
+            <div className="p-6 rounded-3xl glass-panel border border-white/[0.08] shadow-liquid-panel space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400">
+                    Synchronized Player
+                  </span>
+                  <h3 className="text-lg font-bold text-white tracking-tight">
+                    {playbackState.track ? playbackState.track.title : 'No Track Selected'}
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    {playbackState.track ? playbackState.track.artistName : 'Search catalog to play'}
+                  </p>
+                </div>
+
+                {driftStatus && (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-950/80 text-indigo-300 border border-indigo-700/50">
+                    {driftStatus}
+                  </span>
+                )}
+              </div>
+
+              {/* Cover Artwork / Visualizer Hero */}
+              <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-surface-950 border border-white/[0.08] flex items-center justify-center shadow-inner">
+                {playbackState.track?.artworkUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={playbackState.track.artworkUrl}
+                    alt={playbackState.track.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-neutral-600 gap-2">
+                    <Radio className="w-12 h-12 text-purple-400/60" />
+                    <span className="text-xs text-neutral-500 font-mono">VibeSync Room</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute bottom-3 left-3 text-xs text-neutral-300 font-medium">
+                  Catalog: <span className="text-purple-300 font-bold uppercase">{playbackState.provider}</span>
+                </div>
+              </div>
+            </div>
 
             {/* Mobile / Tablet Quick Participants view */}
             <div className="block lg:hidden">
@@ -592,7 +786,7 @@ export default function RoomPage() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* SEARCH CATALOG MODAL */}
       <MusicSearchModal
@@ -603,7 +797,100 @@ export default function RoomPage() {
         currentTrackId={playbackState.track?.id}
       />
 
-      <Footer />
-    </div>
+      {/* CREATE ROOM MODAL */}
+      <Modal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <Radio className="w-5 h-5 text-purple-400" />
+            <span>Create a Listening Room</span>
+          </div>
+        }
+      >
+        <form onSubmit={handleCreateRoomSubmit} className="space-y-4">
+          <Input
+            label="Room Name"
+            value={createRoomName}
+            onChange={(e) => setCreateRoomName(e.target.value)}
+            placeholder="e.g. Midnight Beats, Study Session"
+            required
+            autoFocus
+          />
+
+          <Input
+            label="Your Display Name"
+            value={createDisplayName}
+            onChange={(e) => setCreateDisplayName(e.target.value)}
+            placeholder="e.g. Alex, Maya"
+            helperText="Visible to everyone who joins your room."
+            required
+          />
+
+          {createError && (
+            <p className="text-xs text-rose-400 bg-rose-950/40 p-2.5 rounded-lg border border-rose-900/40">
+              {createError}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setIsCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" isLoading={createLoading}>
+              Launch Room
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* JOIN ROOM MODAL */}
+      <Modal
+        isOpen={isJoinOpen}
+        onClose={() => setIsJoinOpen(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5 text-indigo-400" />
+            <span>Join a Listening Room</span>
+          </div>
+        }
+      >
+        <form onSubmit={handleJoinRoomSubmit} className="space-y-4">
+          <Input
+            label="Room Code"
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            placeholder="e.g. K9T2A8"
+            maxLength={8}
+            className="font-mono uppercase tracking-widest text-center text-lg"
+            required
+            autoFocus
+          />
+
+          <Input
+            label="Your Display Name"
+            value={joinDisplayName}
+            onChange={(e) => setJoinDisplayName(e.target.value)}
+            placeholder="e.g. Jordan, Sam"
+            required
+          />
+
+          {joinError && (
+            <p className="text-xs text-rose-400 bg-rose-950/40 p-2.5 rounded-lg border border-rose-900/40">
+              {joinError}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setIsJoinOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" isLoading={joinLoading}>
+              Join Room
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </LiquidGlassLayout>
   );
 }

@@ -277,6 +277,11 @@ export function YouTubePlayer({
     }
   }, [localVolume, isMuted, isPlayerReady]);
 
+  // Calibrate clock on mount
+  useEffect(() => {
+    syncEngine.syncServerClock();
+  }, []);
+
   // 4. Synchronize commands from room authoritative state
   const syncPlayback = useCallback(() => {
     const player = playerRef.current;
@@ -290,15 +295,15 @@ export function YouTubePlayer({
       onTimeUpdate?.(currentPos, duration);
 
       if (playbackState.playbackStatus === 'playing') {
-        // Calculate drift against authoritative room state
+        // Calculate drift against authoritative room state with sub-500ms threshold
         const { needsSeek, targetPosition, driftSeconds } = syncEngine.shouldCorrectDrift(
           currentPos,
           playbackState,
-          isBuffering
+          isBuffering,
+          'youtube'
         );
 
-        // Tolerant threshold for YouTube video buffering (2.5s)
-        if (needsSeek && Math.abs(driftSeconds) > 2.5) {
+        if (needsSeek) {
           syncEngine.recordSeek();
           player.seekTo(targetPosition, true);
           onDriftCorrected?.(driftSeconds);
@@ -311,10 +316,11 @@ export function YouTubePlayer({
           }
         }
       } else if (playbackState.playbackStatus === 'paused') {
-        if (currentState === 1) {
+        if (currentState === 1 || currentState === 3) {
           player.pauseVideo();
         }
-        if (Math.abs(currentPos - playbackState.basePositionSeconds) > 1.5) {
+        // Ensure paused position precisely matches authoritative room position
+        if (Math.abs(currentPos - playbackState.basePositionSeconds) > 0.4) {
           player.seekTo(playbackState.basePositionSeconds, true);
         }
       }
@@ -323,12 +329,28 @@ export function YouTubePlayer({
     }
   }, [playbackState, isPlayerReady, isBuffering, autoplayBlocked, onDriftCorrected, onTimeUpdate]);
 
-  // Periodic drift synchronization loop (every 1000ms)
+  // IMMEDIATE execution on authoritative room state update (zero delay on play/pause)
+  useEffect(() => {
+    syncPlayback();
+  }, [playbackState.playbackStatus, playbackState.revision, playbackState.basePositionSeconds, syncPlayback]);
+
+  // Periodic drift synchronization loop (every 650ms)
   useEffect(() => {
     const interval = setInterval(() => {
       syncPlayback();
-    }, 1000);
+    }, 650);
     return () => clearInterval(interval);
+  }, [syncPlayback]);
+
+  // Re-synchronize when browser tab regains focus or visibility
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncEngine.syncServerClock().then(() => syncPlayback());
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [syncPlayback]);
 
   // Handle user gesture play for autoplay recovery

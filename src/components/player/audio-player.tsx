@@ -74,6 +74,17 @@ export function AudioPlayer({
     }
   }, [playbackState.track]);
 
+  // Calibrate server clock offset from server time endpoint and state updates
+  useEffect(() => {
+    syncEngine.syncServerClock();
+  }, []);
+
+  useEffect(() => {
+    if (playbackState.updatedAtServer) {
+      syncEngine.calibrateClock(playbackState.updatedAtServer);
+    }
+  }, [playbackState.updatedAtServer]);
+
   // Handle local volume & mute changes
   useEffect(() => {
     const audio = audioRef.current;
@@ -82,23 +93,28 @@ export function AudioPlayer({
     audio.muted = isMuted;
   }, [localVolume, isMuted]);
 
-  // Main playback synchronization loop
+  // Main playback synchronization logic
   const syncPlayback = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !resolvedStreamUrl) return;
 
     if (playbackState.playbackStatus === 'playing') {
-      // Check drift
-      const { needsSeek, targetPosition, driftSeconds } = syncEngine.shouldCorrectDrift(
+      // Evaluate drift with sub-500ms threshold and micro-drift adjustment
+      const { needsSeek, targetPosition, driftSeconds, suggestedRate } = syncEngine.shouldCorrectDrift(
         audio.currentTime,
         playbackState,
-        isBuffering
+        isBuffering,
+        'audius'
       );
 
       if (needsSeek && !audio.seeking) {
         syncEngine.recordSeek();
         audio.currentTime = targetPosition;
         onDriftCorrected?.(driftSeconds);
+      } else if (suggestedRate !== 1.0 && Math.abs(audio.playbackRate - suggestedRate) > 0.01) {
+        audio.playbackRate = suggestedRate;
+      } else if (audio.playbackRate !== 1.0 && driftSeconds <= 0.15) {
+        audio.playbackRate = 1.0;
       }
 
       if (audio.paused && !autoplayBlocked) {
@@ -115,19 +131,38 @@ export function AudioPlayer({
       if (!audio.paused) {
         audio.pause();
       }
-      // Ensure paused position matches authoritative position if drifted
-      if (Math.abs(audio.currentTime - playbackState.basePositionSeconds) > 1.0) {
+      if (audio.playbackRate !== 1.0) {
+        audio.playbackRate = 1.0;
+      }
+      // Ensure paused position precisely matches authoritative position
+      if (Math.abs(audio.currentTime - playbackState.basePositionSeconds) > 0.3) {
         audio.currentTime = playbackState.basePositionSeconds;
       }
     }
   }, [playbackState, resolvedStreamUrl, isBuffering, autoplayBlocked, onDriftCorrected]);
 
-  // Periodic drift check interval (every 900ms)
+  // IMMEDIATE execution on authoritative room state update (zero delay on play/pause)
+  useEffect(() => {
+    syncPlayback();
+  }, [playbackState.playbackStatus, playbackState.revision, playbackState.basePositionSeconds, syncPlayback]);
+
+  // Periodic drift check interval (every 600ms)
   useEffect(() => {
     const interval = setInterval(() => {
       syncPlayback();
-    }, 900);
+    }, 600);
     return () => clearInterval(interval);
+  }, [syncPlayback]);
+
+  // Re-synchronize when browser tab regains focus or visibility
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncEngine.syncServerClock().then(() => syncPlayback());
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [syncPlayback]);
 
   // Audio event listeners
