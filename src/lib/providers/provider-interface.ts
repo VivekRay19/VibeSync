@@ -1,13 +1,25 @@
-import { MusicProviderId, NormalizedTrack, SearchResult } from '../types/music';
+import { MusicProviderId, NormalizedTrack, PlaybackType, SearchResult } from '../types/music';
+
+export interface ProviderHealth {
+  healthy: boolean;
+  latencyMs?: number;
+  message?: string;
+}
 
 export interface MusicProvider {
   readonly id: MusicProviderId;
   readonly name: string;
+  readonly playbackType: PlaybackType;
 
   /**
    * Check if the provider has all required credentials or public connectivity configured.
    */
   isConfigured(): boolean;
+
+  /**
+   * Perform an optional connectivity and latency health check.
+   */
+  healthCheck?(): Promise<ProviderHealth>;
 
   /**
    * Search for tracks matching a user query with optional pagination.

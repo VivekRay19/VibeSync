@@ -46,7 +46,7 @@ export function AudioPlayer({
   // Resolve stream source if missing or on track change
   useEffect(() => {
     const track = playbackState.track;
-    if (!track) return;
+    if (!track || track.playbackType === 'video_embed' || track.provider === 'youtube') return;
 
     const trackKey = `${track.provider}:${track.providerTrackId}`;
     if (prevTrackIdRef.current !== trackKey) {

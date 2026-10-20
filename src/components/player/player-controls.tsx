@@ -61,6 +61,7 @@ export function PlayerControls({
 
   const track = playbackState.track;
   const isPlaying = playbackState.playbackStatus === 'playing';
+  const isVideoEmbed = track?.playbackType === 'video_embed' || track?.provider === 'youtube';
   const duration = totalDuration > 0 ? totalDuration : track?.durationSeconds || 1;
   const progressPercent = Math.min(100, Math.max(0, (localSeekValue / duration) * 100));
 
@@ -78,7 +79,7 @@ export function PlayerControls({
       {/* Top Header / Track Metadata */}
       <div className="flex flex-col md:flex-row items-center gap-6 sm:gap-8 z-10">
         {/* Large Artwork (for Audius / default empty) */}
-        {track?.provider !== 'youtube' ? (
+        {!isVideoEmbed ? (
           <div className="relative group shrink-0">
             <div
               className={`w-40 h-40 sm:w-48 sm:h-48 rounded-2xl overflow-hidden bg-surface-950 border border-surface-700/80 shadow-2xl flex items-center justify-center transition-all duration-500 ${
@@ -119,12 +120,12 @@ export function PlayerControls({
         {/* Track Title, Artist, Attribution */}
         <div
           className={`flex-1 space-y-2.5 min-w-0 ${
-            track?.provider === 'youtube' ? 'text-left' : 'text-center md:text-left'
+            isVideoEmbed ? 'text-left' : 'text-center md:text-left'
           }`}
         >
           <div
             className={`flex flex-wrap items-center gap-2 ${
-              track?.provider === 'youtube' ? 'justify-start' : 'justify-center md:justify-start'
+              isVideoEmbed ? 'justify-start' : 'justify-center md:justify-start'
             }`}
           >
             <PlaybackStatusBadge status={isBuffering ? 'buffering' : playbackState.playbackStatus} />
@@ -149,7 +150,7 @@ export function PlayerControls({
           {playbackState.updatedByName && (
             <div
               className={`flex items-center gap-1.5 text-xs text-neutral-400 ${
-                track?.provider === 'youtube' ? 'justify-start' : 'justify-center md:justify-start'
+                isVideoEmbed ? 'justify-start' : 'justify-center md:justify-start'
               }`}
             >
               <User className="w-3.5 h-3.5 text-purple-400" />

@@ -1,7 +1,7 @@
-import { MusicProvider } from './provider-interface';
+import { MusicProvider, ProviderHealth } from './provider-interface';
 import { AudiusAdapter } from './audius-adapter';
 import { YouTubeAdapter } from './youtube-adapter';
-import { MusicProviderId, NormalizedTrack, SearchResult } from '../types/music';
+import { MusicProviderId, NormalizedTrack, PlaybackType, SearchResult } from '../types/music';
 
 export class ProviderRegistry {
   private providers: Map<MusicProviderId, MusicProvider> = new Map();
@@ -23,12 +23,35 @@ export class ProviderRegistry {
     return Array.from(this.providers.values());
   }
 
-  getConfiguredProviders(): { id: MusicProviderId; name: string; isConfigured: boolean }[] {
+  getConfiguredProviders(): {
+    id: MusicProviderId;
+    name: string;
+    playbackType: PlaybackType;
+    isConfigured: boolean;
+  }[] {
     return this.getAll().map((p) => ({
       id: p.id,
       name: p.name,
+      playbackType: p.playbackType,
       isConfigured: p.isConfigured(),
     }));
+  }
+
+  async checkHealth(): Promise<Record<MusicProviderId, ProviderHealth>> {
+    const healthMap: Partial<Record<MusicProviderId, ProviderHealth>> = {};
+    await Promise.all(
+      this.getAll().map(async (p) => {
+        if (typeof p.healthCheck === 'function') {
+          healthMap[p.id] = await p.healthCheck();
+        } else {
+          healthMap[p.id] = {
+            healthy: p.isConfigured(),
+            message: p.isConfigured() ? 'Operational' : 'Unconfigured',
+          };
+        }
+      })
+    );
+    return healthMap as Record<MusicProviderId, ProviderHealth>;
   }
 
   async search(

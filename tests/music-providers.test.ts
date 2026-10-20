@@ -68,7 +68,17 @@ describe('Music Providers', () => {
     expect(youtube?.name).toBe('YouTube');
 
     const configured = registry.getConfiguredProviders();
-    expect(configured.some((p) => p.id === 'audius')).toBe(true);
-    expect(configured.some((p) => p.id === 'youtube')).toBe(true);
+    expect(configured.some((p) => p.id === 'audius' && p.playbackType === 'audio_stream')).toBe(true);
+    expect(configured.some((p) => p.id === 'youtube' && p.playbackType === 'video_embed')).toBe(true);
+  });
+
+  it('ProviderRegistry performs connectivity and configuration health checks', async () => {
+    const registry = new ProviderRegistry();
+    const health = await registry.checkHealth();
+
+    expect(health.audius).toBeDefined();
+    expect(health.youtube).toBeDefined();
+    expect(typeof health.audius.healthy).toBe('boolean');
+    expect(typeof health.youtube.healthy).toBe('boolean');
   });
 });

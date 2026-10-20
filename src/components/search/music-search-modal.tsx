@@ -201,10 +201,21 @@ export function MusicSearchModal({
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold text-white truncate">{track.title}</p>
                       <ProviderBadge provider={track.provider} />
+                      {!track.isPlayable && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/40">
+                          Unavailable
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-neutral-400 truncate mt-0.5">{track.artistName}</p>
                     <div className="flex items-center gap-3 text-[11px] text-neutral-500 mt-1">
-                      <span>{formatDuration(track.durationSeconds)}</span>
+                      <span>
+                        {track.durationSeconds > 0
+                          ? formatDuration(track.durationSeconds)
+                          : track.playbackType === 'video_embed' || track.provider === 'youtube'
+                          ? 'Official Video'
+                          : 'Audio Stream'}
+                      </span>
                       <a
                         href={track.providerPageUrl}
                         target="_blank"
@@ -224,8 +235,9 @@ export function MusicSearchModal({
                     size="sm"
                     variant="ghost"
                     onClick={() => handleAddToQueue(track)}
-                    title="Add to shared room queue"
-                    className="text-neutral-300 hover:text-white"
+                    disabled={!track.isPlayable}
+                    title={track.isPlayable ? 'Add to shared room queue' : 'Track is unavailable for playback'}
+                    className="text-neutral-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Plus className="w-4 h-4 mr-1 text-purple-400" />
                     <span className="hidden sm:inline text-xs">Queue</span>
@@ -234,7 +246,9 @@ export function MusicSearchModal({
                     size="sm"
                     variant="primary"
                     onClick={() => handleSelectTrack(track)}
-                    title="Play track immediately for all members"
+                    disabled={!track.isPlayable}
+                    title={track.isPlayable ? 'Play track immediately for all members' : 'Track is unavailable for playback'}
+                    className="disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Play className="w-3.5 h-3.5 mr-1 fill-white" />
                     <span className="text-xs">Play Now</span>
@@ -244,16 +258,43 @@ export function MusicSearchModal({
             );
           })}
 
-          {/* Empty search result notice */}
+          {/* Empty search result notice with provider fallback */}
           {hasSearched && results.length === 0 && !isLoading && !error && (
-            <div className="p-8 text-center space-y-2 bg-surface-950/40 rounded-2xl border border-surface-800">
+            <div className="p-8 text-center space-y-3 bg-surface-950/40 rounded-2xl border border-surface-800">
               <Music className="w-8 h-8 text-neutral-600 mx-auto" />
               <p className="text-sm font-medium text-neutral-300">
                 No playable tracks found for &ldquo;{query}&rdquo;
               </p>
-              <p className="text-xs text-neutral-400 max-w-sm mx-auto leading-relaxed">
-                VibeSync only streams eligible tracks from connected open music catalogs. Commercial chart releases may not be licensed in free catalogs. Try searching for electronic, indie, ambient, or lo-fi tracks.
-              </p>
+              <div className="text-xs text-neutral-400 max-w-sm mx-auto leading-relaxed space-y-2">
+                {provider === 'audius' ? (
+                  <p>
+                    Audius did not return tracks for this search. Try switching to the{' '}
+                    <button
+                      type="button"
+                      onClick={() => setProvider('youtube')}
+                      className="text-purple-400 underline font-semibold hover:text-purple-300"
+                    >
+                      YouTube catalog
+                    </button>{' '}
+                    to find official releases and music videos.
+                  </p>
+                ) : provider === 'youtube' ? (
+                  <p>
+                    YouTube did not return embeddable videos for this search. Try searching for another track or explore indie and electronic music on the{' '}
+                    <button
+                      type="button"
+                      onClick={() => setProvider('audius')}
+                      className="text-purple-400 underline font-semibold hover:text-purple-300"
+                    >
+                      Audius catalog
+                    </button>.
+                  </p>
+                ) : (
+                  <p>
+                    Try searching by full song title and artist (e.g. &ldquo;Ghost Justin Bieber&rdquo;), or explore indie and electronic genres.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

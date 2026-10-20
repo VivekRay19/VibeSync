@@ -1,5 +1,13 @@
 export type MusicProviderId = 'audius' | 'youtube';
 
+export type PlaybackType = 'audio_stream' | 'video_embed';
+
+export interface TrackRestrictions {
+  embeddable?: boolean;
+  regionRestricted?: boolean;
+  reason?: string;
+}
+
 export interface NormalizedTrack {
   id: string; // provider:providerTrackId
   provider: MusicProviderId;
@@ -10,6 +18,8 @@ export interface NormalizedTrack {
   durationSeconds: number;
   providerPageUrl: string;
   streamUrl?: string | null;
+  playbackType?: PlaybackType;
+  restrictions?: TrackRestrictions;
   licenseUrl?: string | null;
   attributionText?: string | null;
   isPlayable: boolean;

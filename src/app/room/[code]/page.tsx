@@ -509,7 +509,9 @@ export default function RoomPage() {
           <div className="lg:col-span-7 space-y-6">
             {/* Provider-aware Synchronization Engine & Media Player */}
             {playbackState.track &&
-            (playbackState.provider === 'youtube' || playbackState.track.provider === 'youtube') ? (
+            (playbackState.track.playbackType === 'video_embed' ||
+              playbackState.provider === 'youtube' ||
+              playbackState.track.provider === 'youtube') ? (
               <YouTubePlayer
                 playbackState={playbackState}
                 onTrackEnded={handleTrackEnded}

@@ -1,4 +1,4 @@
-import { MusicProvider } from './provider-interface';
+import { MusicProvider, ProviderHealth } from './provider-interface';
 import { NormalizedTrack, SearchResult } from '../types/music';
 
 interface YouTubeSnippetThumbnail {
@@ -67,6 +67,7 @@ function decodeHtmlEntities(str: string): string {
 export class YouTubeAdapter implements MusicProvider {
   readonly id = 'youtube' as const;
   readonly name = 'YouTube';
+  readonly playbackType = 'video_embed' as const;
 
   private apiKey: string | null = null;
 
@@ -100,6 +101,10 @@ export class YouTubeAdapter implements MusicProvider {
       durationSeconds: 0, // YouTube IFrame Player API reports true runtime dynamically upon playback
       providerPageUrl: `https://www.youtube.com/watch?v=${videoId}`,
       streamUrl: null, // Audio extraction is strictly prohibited; playback uses official embedded IFrame
+      playbackType: 'video_embed',
+      restrictions: {
+        embeddable: true,
+      },
       attributionText: `Video "${title}" by ${artistName} on YouTube`,
       isPlayable: true,
     };
@@ -231,5 +236,46 @@ export class YouTubeAdapter implements MusicProvider {
 
   getProviderPageUrl(track: NormalizedTrack): string {
     return track.providerPageUrl || `https://www.youtube.com/watch?v=${track.providerTrackId}`;
+  }
+
+  async healthCheck(): Promise<ProviderHealth> {
+    if (!this.isConfigured()) {
+      return {
+        healthy: false,
+        message: 'YouTube API key not configured',
+      };
+    }
+
+    const startTime = Date.now();
+    try {
+      const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+      url.searchParams.set('part', 'snippet');
+      url.searchParams.set('id', 'KRUWn3dLoRg');
+      url.searchParams.set('key', this.apiKey!);
+
+      const res = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      const latencyMs = Date.now() - startTime;
+      if (res.ok) {
+        return {
+          healthy: true,
+          latencyMs,
+          message: 'YouTube Data API v3 operational',
+        };
+      }
+      return {
+        healthy: false,
+        latencyMs,
+        message: `YouTube Data API returned status ${res.status}`,
+      };
+    } catch (err) {
+      return {
+        healthy: false,
+        latencyMs: Date.now() - startTime,
+        message: `YouTube connectivity error: ${err instanceof Error ? err.message : 'Unreachable'}`,
+      };
+    }
   }
 }

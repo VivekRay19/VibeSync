@@ -1,4 +1,4 @@
-import { MusicProvider } from './provider-interface';
+import { MusicProvider, ProviderHealth } from './provider-interface';
 import { NormalizedTrack, SearchResult } from '../types/music';
 
 interface AudiusTrackResponse {
@@ -23,6 +23,7 @@ interface AudiusTrackResponse {
 export class AudiusAdapter implements MusicProvider {
   readonly id = 'audius' as const;
   readonly name = 'Audius';
+  readonly playbackType = 'audio_stream' as const;
 
   private defaultHost = 'https://discoveryprovider.audius.co';
   private appName = 'VibeSync';
@@ -102,6 +103,10 @@ export class AudiusAdapter implements MusicProvider {
       durationSeconds: Math.max(0, Math.round(raw.duration || 0)),
       providerPageUrl,
       streamUrl: this.getDirectStreamUrl(raw.id),
+      playbackType: 'audio_stream',
+      restrictions: {
+        embeddable: true,
+      },
       attributionText: `Provided by ${raw.user?.name || 'Audius Creator'} on Audius`,
       licenseUrl: 'https://audius.co/terms-of-use',
       isPlayable: raw.is_streamable !== false,
@@ -203,5 +208,24 @@ export class AudiusAdapter implements MusicProvider {
 
   getProviderPageUrl(track: NormalizedTrack): string {
     return track.providerPageUrl;
+  }
+
+  async healthCheck(): Promise<ProviderHealth> {
+    const startTime = Date.now();
+    try {
+      const host = await this.getHealthyHost();
+      const latencyMs = Date.now() - startTime;
+      return {
+        healthy: true,
+        latencyMs,
+        message: `Audius gateway node active (${host})`,
+      };
+    } catch (err) {
+      return {
+        healthy: false,
+        latencyMs: Date.now() - startTime,
+        message: `Audius health check failed: ${err instanceof Error ? err.message : 'Unreachable'}`,
+      };
+    }
   }
 }
