@@ -74,16 +74,10 @@ export function AudioPlayer({
     }
   }, [playbackState.track]);
 
-  // Calibrate server clock offset from server time endpoint and state updates
+  // Calibrate server clock offset from server time endpoint
   useEffect(() => {
     syncEngine.syncServerClock();
   }, []);
-
-  useEffect(() => {
-    if (playbackState.updatedAtServer) {
-      syncEngine.calibrateClock(playbackState.updatedAtServer);
-    }
-  }, [playbackState.updatedAtServer]);
 
   // Handle local volume & mute changes
   useEffect(() => {

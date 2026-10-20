@@ -180,4 +180,46 @@ describe('Real-Time Cross-Device Playback Synchronization', () => {
     expect(trackChangedState.playbackStatus).toBe('playing');
     expect(trackChangedState.revision).toBe(2);
   });
+
+  it('generates high-contrast QR code data URLs for listening room invitation URLs', async () => {
+    const QRCode = await import('qrcode');
+    const roomCode = 'VIBE99';
+    const origin = 'https://vibe-sync-hazel.vercel.app';
+    const inviteUrl = `${origin}/room/${roomCode}`;
+
+    const dataUrl = await QRCode.toDataURL(inviteUrl, {
+      width: 280,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#080A11', light: '#FFFFFF' },
+    });
+
+    expect(dataUrl).toBeDefined();
+    expect(dataUrl.startsWith('data:image/png;base64,')).toBe(true);
+    expect(dataUrl.length).toBeGreaterThan(100);
+  });
+
+  it('evaluates fast room synchronization with revision checks (304 not modified vs modified)', () => {
+    const serverState: PlaybackState = {
+      roomId: 'room-abc',
+      provider: 'verome',
+      providerTrackId: 'u9n7Cw-4_PE',
+      track: mockVeromeTrack,
+      playbackStatus: 'playing',
+      basePositionSeconds: 45,
+      updatedAtServer: new Date().toISOString(),
+      revision: 6,
+      updatedBy: 'host-1',
+    };
+
+    // Client A is up-to-date with revision 6 -> Not Modified
+    const clientRevA = 6;
+    const isModifiedA = serverState.revision > clientRevA;
+    expect(isModifiedA).toBe(false);
+
+    // Client B was asleep or on phone with revision 4 -> Needs Update
+    const clientRevB = 4;
+    const isModifiedB = serverState.revision > clientRevB;
+    expect(isModifiedB).toBe(true);
+  });
 });

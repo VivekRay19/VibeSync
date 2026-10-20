@@ -24,6 +24,7 @@ import {
   GuestSession,
 } from '@/lib/auth/client';
 import { syncEngine } from '@/lib/sync/engine';
+import { RoomInviteModal } from '@/components/room/room-invite-modal';
 import { Loader2, AlertCircle, Headphones, Radio, Users } from 'lucide-react';
 
 export default function RoomPage() {
@@ -54,8 +55,10 @@ export default function RoomPage() {
 
   // UI state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const latestRevisionRef = useRef(1);
 
   // Modals for Create and Join from sidebar/topbar
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -132,6 +135,7 @@ export default function RoomPage() {
       setQueue(data.queue || []);
 
       if (data.playbackState) {
+        latestRevisionRef.current = data.playbackState.revision;
         const expected = syncEngine.calculateExpectedPosition(data.playbackState);
         setCurrentTime(expected);
         setDuration(data.playbackState.track?.durationSeconds || 240);
@@ -199,12 +203,10 @@ export default function RoomPage() {
             return;
           }
 
-          setPlaybackState((prev) => {
-            if (!prev || incoming.revision >= prev.revision) {
-              return incoming;
-            }
-            return prev;
-          });
+          if (incoming.revision >= latestRevisionRef.current) {
+            latestRevisionRef.current = incoming.revision;
+            setPlaybackState(incoming);
+          }
         } else if (type === 'QUEUE_UPDATE' && payload?.queue) {
           setQueue(payload.queue);
         } else if (type === 'PRESENCE_SYNC' && payload?.members) {
@@ -250,38 +252,43 @@ export default function RoomPage() {
       console.warn('SSE connection interrupted, will auto-reconnect:', err);
     };
 
-    // 3. Resilient fallback polling every 4 seconds in case SSE stream is cut (e.g. mobile lock)
-    const fallbackPoll = setInterval(async () => {
-      if (!isSseConnectedRef.current && session) {
-        try {
-          const res = await fetch('/api/rooms/join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              roomCode,
-              displayName: session.displayName,
-              userId: session.userId,
-            }),
-          });
-          if (res.ok) {
-            const freshData = await res.json();
-            if (freshData.playbackState) {
-              setPlaybackState((prev) => {
-                if (!prev || freshData.playbackState.revision > prev.revision) {
-                  return freshData.playbackState;
-                }
-                return prev;
-              });
+    // 3. Fast state synchronization poll (every 1200ms) to guarantee cross-instance propagation on Vercel
+    const syncWithServer = async () => {
+      if (!room) return;
+      try {
+        const res = await fetch(
+          `/api/rooms/sync?roomId=${encodeURIComponent(room.id)}&sinceRevision=${latestRevisionRef.current}`
+        );
+        if (res.ok) {
+          const syncData = await res.json();
+          if (syncData.modified && syncData.playbackState) {
+            const incoming = syncData.playbackState as PlaybackState;
+            if (incoming.revision > latestRevisionRef.current) {
+              latestRevisionRef.current = incoming.revision;
+              setPlaybackState(incoming);
+              if (syncData.queue) {
+                setQueue(syncData.queue);
+              }
             }
           }
-        } catch {
-          // Keep trying
         }
+      } catch {
+        // Keep trying silently
       }
-    }, 4000);
+    };
+
+    const syncInterval = setInterval(syncWithServer, 1200);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncWithServer();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      clearInterval(fallbackPoll);
+      clearInterval(syncInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (tabBroadcastRef.current) {
         tabBroadcastRef.current.close();
       }
@@ -303,39 +310,39 @@ export default function RoomPage() {
 
     // Optimistic UI update
     if (command === 'PAUSE') {
-      setPlaybackState((prev) =>
-        prev
-          ? {
-              ...prev,
-              playbackStatus: 'paused',
-              basePositionSeconds: positionSeconds,
-              revision: prev.revision + 1,
-            }
-          : null
-      );
+      setPlaybackState((prev) => {
+        if (!prev) return null;
+        latestRevisionRef.current = prev.revision + 1;
+        return {
+          ...prev,
+          playbackStatus: 'paused',
+          basePositionSeconds: positionSeconds,
+          revision: prev.revision + 1,
+        };
+      });
     } else if (command === 'PLAY' || command === 'RESUME') {
-      setPlaybackState((prev) =>
-        prev
-          ? {
-              ...prev,
-              playbackStatus: 'playing',
-              basePositionSeconds: positionSeconds,
-              updatedAtServer: new Date().toISOString(),
-              revision: prev.revision + 1,
-            }
-          : null
-      );
+      setPlaybackState((prev) => {
+        if (!prev) return null;
+        latestRevisionRef.current = prev.revision + 1;
+        return {
+          ...prev,
+          playbackStatus: 'playing',
+          basePositionSeconds: positionSeconds,
+          updatedAtServer: new Date().toISOString(),
+          revision: prev.revision + 1,
+        };
+      });
     } else if (command === 'SEEK') {
-      setPlaybackState((prev) =>
-        prev
-          ? {
-              ...prev,
-              basePositionSeconds: positionSeconds,
-              updatedAtServer: new Date().toISOString(),
-              revision: prev.revision + 1,
-            }
-          : null
-      );
+      setPlaybackState((prev) => {
+        if (!prev) return null;
+        latestRevisionRef.current = prev.revision + 1;
+        return {
+          ...prev,
+          basePositionSeconds: positionSeconds,
+          updatedAtServer: new Date().toISOString(),
+          revision: prev.revision + 1,
+        };
+      });
     }
 
     try {
@@ -361,6 +368,7 @@ export default function RoomPage() {
       }
 
       if (data.state) {
+        latestRevisionRef.current = data.state.revision;
         setPlaybackState(data.state);
 
         // Broadcast to local tabs
@@ -678,12 +686,14 @@ export default function RoomPage() {
       onSkipNext={handleSkipNext}
       onSkipPrev={() => handleSeek(0)}
       onSelectTrack={handleSelectTrack}
+      onAddToQueue={handleAddToQueue}
       onRemoveQueueItem={handleRemoveQueueItem}
       onVolumeChange={handleVolumeChange}
       onToggleMute={handleToggleMute}
       onOpenCreateRoom={() => setIsCreateOpen(true)}
       onOpenJoinRoom={() => setIsJoinOpen(true)}
       onOpenSearch={() => setIsSearchOpen(true)}
+      onOpenInvite={() => setIsInviteOpen(true)}
       onLeaveRoom={handleLeaveRoom}
       onTrackEnded={handleTrackEnded}
       onDriftCorrected={handleDriftCorrected}
@@ -701,6 +711,7 @@ export default function RoomPage() {
           isRoomOwner={isRoomOwner}
           onLeaveRoom={handleLeaveRoom}
           onCloseRoom={handleCloseRoom}
+          onOpenInvite={() => setIsInviteOpen(true)}
         />
 
         {/* MAIN ROOM INTERACTIVE GRID */}
@@ -891,6 +902,14 @@ export default function RoomPage() {
           </div>
         </form>
       </Modal>
+
+      {/* ROOM INVITATION QR MODAL */}
+      <RoomInviteModal
+        isOpen={isInviteOpen}
+        onClose={() => setIsInviteOpen(false)}
+        roomName={room.name}
+        roomCode={room.roomCode}
+      />
     </LiquidGlassLayout>
   );
 }

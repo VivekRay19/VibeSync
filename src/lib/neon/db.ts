@@ -282,6 +282,35 @@ export async function joinRoom(
   return { room, playbackState, members, queue };
 }
 
+export async function getPlaybackState(roomId: string): Promise<PlaybackState | null> {
+  const sql = getDb();
+  const pbRows = await sql`
+    SELECT id, room_id, provider_id, provider_track_id, track_metadata, playback_status,
+           base_position_seconds, revision, updated_by, updated_by_name, current_queue_item_id, updated_at
+    FROM playback_state
+    WHERE room_id = ${roomId}
+    LIMIT 1
+  `;
+
+  if (!pbRows || pbRows.length === 0) return null;
+  const rawPb = pbRows[0];
+
+  return {
+    id: rawPb.id,
+    roomId: rawPb.room_id,
+    provider: rawPb.provider_id,
+    providerTrackId: rawPb.provider_track_id,
+    track: typeof rawPb.track_metadata === 'string' ? JSON.parse(rawPb.track_metadata) : rawPb.track_metadata,
+    playbackStatus: rawPb.playback_status as PlaybackStatus,
+    basePositionSeconds: Number(rawPb.base_position_seconds),
+    updatedAtServer: new Date(rawPb.updated_at).toISOString(),
+    revision: Number(rawPb.revision),
+    updatedBy: rawPb.updated_by,
+    updatedByName: rawPb.updated_by_name,
+    currentQueueItemId: rawPb.current_queue_item_id || null,
+  };
+}
+
 // In-memory idempotency cache for duplicate command protection
 const commandIdempotencyCache = new Map<string, { state: PlaybackState; timestamp: number }>();
 

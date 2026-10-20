@@ -14,6 +14,7 @@ import {
   Menu,
   Music2,
   Trash2,
+  QrCode,
 } from 'lucide-react';
 import { PlaybackState, QueueItem, NormalizedTrack, Room } from '@/lib/types/music';
 import { PresenceState } from '@/lib/types/realtime';
@@ -36,6 +37,7 @@ interface ListeningRoomPanelProps {
   onRemoveQueueItem?: (queueItemId: string) => void;
   onLeaveRoom: () => void;
   isBuffering?: boolean;
+  onOpenInvite?: () => void;
 }
 
 export function ListeningRoomPanel({
@@ -55,6 +57,7 @@ export function ListeningRoomPanel({
   onRemoveQueueItem,
   onLeaveRoom,
   isBuffering = false,
+  onOpenInvite,
 }: ListeningRoomPanelProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
@@ -83,18 +86,31 @@ export function ListeningRoomPanel({
 
   return (
     <aside className="w-80 shrink-0 flex flex-col h-full glass-panel rounded-3xl p-4 select-none overflow-hidden space-y-4">
-      {/* 1. Header: Listening Together + Leave button */}
+      {/* 1. Header: Listening Together + Invite (QR) + Leave button */}
       <div className="flex items-center justify-between px-1 pt-1">
         <h2 className="text-sm font-bold text-white tracking-tight">
           Listening Together
         </h2>
-        <button
-          type="button"
-          onClick={onLeaveRoom}
-          className="px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition-all active:scale-95 flex items-center gap-1.5"
-        >
-          <span>Leave</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          {onOpenInvite && (
+            <button
+              type="button"
+              onClick={onOpenInvite}
+              className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 transition-all active:scale-95 flex items-center gap-1"
+              title="Invite friends with QR Code"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Invite</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onLeaveRoom}
+            className="px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition-all active:scale-95 flex items-center gap-1.5"
+          >
+            <span>Leave</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. Room Identity & Member Card */}

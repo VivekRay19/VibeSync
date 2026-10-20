@@ -10,7 +10,7 @@ import { YouTubePlayer } from '@/components/player/youtube-player';
 import { Room, PlaybackState, QueueItem, NormalizedTrack } from '@/lib/types/music';
 import { PresenceState } from '@/lib/types/realtime';
 import { GuestSession } from '@/lib/auth/client';
-import { Users, X, Menu } from 'lucide-react';
+import { Users, X } from 'lucide-react';
 
 interface LiquidGlassLayoutProps {
   children: React.ReactNode;
@@ -45,6 +45,8 @@ interface LiquidGlassLayoutProps {
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   activePlaylist?: string | null;
   onSelectPlaylist?: (playlistName: string) => void;
+  onAddToQueue?: (track: NormalizedTrack) => void;
+  onOpenInvite?: () => void;
 }
 
 export function LiquidGlassLayout({
@@ -80,6 +82,8 @@ export function LiquidGlassLayout({
   onTimeUpdate,
   activePlaylist,
   onSelectPlaylist,
+  onAddToQueue,
+  onOpenInvite,
 }: LiquidGlassLayoutProps) {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [mobileRoomPanelOpen, setMobileRoomPanelOpen] = useState(false);
@@ -103,7 +107,7 @@ export function LiquidGlassLayout({
       </div>
 
       {/* Main 3-Column Desktop Interface */}
-      <div className="relative z-10 flex-1 flex h-screen p-2.5 sm:p-3.5 gap-3.5 overflow-hidden">
+      <div className="relative z-10 flex-1 flex h-screen p-2 sm:p-3.5 gap-2 sm:gap-3.5 overflow-hidden">
         {/* LEFT COLUMN: Sidebar (Desktop) */}
         <div className="hidden lg:flex h-full">
           <Sidebar
@@ -118,36 +122,30 @@ export function LiquidGlassLayout({
         {/* CENTER COLUMN: Main Content Stream */}
         <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
           {/* Top Search & Account Bar */}
-          <div className="flex items-center gap-2 mb-2">
-            {/* Mobile Menu Button */}
-            <button
-              type="button"
-              onClick={() => setMobileDrawerOpen(true)}
-              className="lg:hidden p-2 rounded-xl glass-pill text-neutral-300 hover:text-white"
-              title="Open Navigation"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-
+          <div className="flex items-center gap-2 mb-2 w-full">
             <div className="flex-1 min-w-0">
               <TopSearchBar
                 session={session}
                 onSelectTrack={onSelectTrack}
+                onAddToQueue={onAddToQueue}
                 onOpenCreateRoom={onOpenCreateRoom}
                 onOpenJoinRoom={onOpenJoinRoom}
+                onOpenMobileNav={() => setMobileDrawerOpen(true)}
                 onLogout={onLogout}
+                isInRoom={!!room}
+                onOpenInvite={onOpenInvite}
               />
             </div>
 
-            {/* Mobile Room Panel Toggle Button */}
+            {/* Tablet/Medium Screen Room Panel Toggle (hidden on mobile and desktop) */}
             <button
               type="button"
               onClick={() => setMobileRoomPanelOpen((prev) => !prev)}
-              className="xl:hidden p-2 rounded-xl glass-pill text-neutral-300 hover:text-white flex items-center gap-1.5 text-xs font-semibold"
+              className="hidden md:flex xl:hidden p-2 rounded-xl glass-pill text-neutral-300 hover:text-white items-center gap-1.5 text-xs font-semibold shrink-0"
               title="Open Room Panel"
             >
               <Users className="w-4 h-4 text-purple-400" />
-              <span className="hidden sm:inline">Room</span>
+              <span>Room</span>
             </button>
           </div>
 

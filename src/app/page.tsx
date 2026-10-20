@@ -378,6 +378,19 @@ export default function HomePage() {
       onSkipNext={handleSkipNext}
       onSkipPrev={handleSkipPrev}
       onSelectTrack={handleSelectTrack}
+      onAddToQueue={(track) => {
+        const newItem: QueueItem = {
+          id: `q-${Date.now()}`,
+          roomId: 'home-preview',
+          track,
+          addedByUserId: session?.userId || 'guest',
+          addedByName: session?.displayName || 'You',
+          queuePosition: queue.length + 1,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        };
+        setQueue((prev) => [...prev, newItem]);
+      }}
       onRemoveQueueItem={(itemId) =>
         setQueue((prev) => prev.filter((item) => item.id !== itemId))
       }

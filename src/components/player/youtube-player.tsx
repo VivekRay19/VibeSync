@@ -316,7 +316,7 @@ export function YouTubePlayer({
           }
         }
       } else if (playbackState.playbackStatus === 'paused') {
-        if (currentState === 1 || currentState === 3) {
+        if (currentState !== 2) {
           player.pauseVideo();
         }
         // Ensure paused position precisely matches authoritative room position

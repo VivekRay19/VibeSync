@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Button } from '../ui/button';
-import { Copy, Check, LogOut, ShieldAlert } from 'lucide-react';
+import { Check, LogOut, ShieldAlert, QrCode } from 'lucide-react';
 
 interface RoomHeaderProps {
   roomName: string;
@@ -10,6 +10,7 @@ interface RoomHeaderProps {
   isRoomOwner: boolean;
   onLeaveRoom: () => void;
   onCloseRoom?: () => void;
+  onOpenInvite?: () => void;
 }
 
 export function RoomHeader({
@@ -18,11 +19,17 @@ export function RoomHeader({
   isRoomOwner,
   onLeaveRoom,
   onCloseRoom,
+  onOpenInvite,
 }: RoomHeaderProps) {
   const [copied, setCopied] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
-  const handleCopyLink = () => {
+  const handleInviteClick = () => {
+    if (onOpenInvite) {
+      onOpenInvite();
+      return;
+    }
+
     if (typeof window !== 'undefined') {
       const inviteUrl = `${window.location.origin}/room/${roomCode}`;
       navigator.clipboard.writeText(inviteUrl);
@@ -49,7 +56,7 @@ export function RoomHeader({
         <Button
           size="sm"
           variant="secondary"
-          onClick={handleCopyLink}
+          onClick={handleInviteClick}
           className="flex-1 sm:flex-initial text-xs"
         >
           {copied ? (
@@ -59,8 +66,8 @@ export function RoomHeader({
             </>
           ) : (
             <>
-              <Copy className="w-3.5 h-3.5 text-purple-400 mr-1.5" />
-              <span>Invite Friends</span>
+              <QrCode className="w-3.5 h-3.5 text-purple-400 mr-1.5" />
+              <span>Invite Friends (QR)</span>
             </>
           )}
         </Button>

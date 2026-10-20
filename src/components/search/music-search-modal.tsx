@@ -3,10 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from '../ui/modal';
 import { Button } from '../ui/button';
-import { ProviderBadge } from '../ui/badge';
 import { NormalizedTrack, MusicProviderId } from '@/lib/types/music';
 import { formatDuration } from '@/lib/utils';
-import { Search, Play, Plus, ExternalLink, AlertCircle, Music, Loader2, RefreshCw } from 'lucide-react';
+import { Search, Play, ExternalLink, AlertCircle, Music, Loader2, RefreshCw, ListPlus, Check } from 'lucide-react';
 
 interface MusicSearchModalProps {
   isOpen: boolean;
@@ -31,6 +30,7 @@ export function MusicSearchModal({
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [addedTrackIds, setAddedTrackIds] = useState<Set<string>>(new Set());
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const suggestionTimer = useRef<NodeJS.Timeout | null>(null);
@@ -126,8 +126,18 @@ export function MusicSearchModal({
     onClose();
   };
 
-  const handleAddToQueue = (track: NormalizedTrack) => {
+  const handleQueueClick = (track: NormalizedTrack) => {
+    if (addedTrackIds.has(track.id)) return;
+    setAddedTrackIds((prev) => new Set(prev).add(track.id));
     onAddToQueue(track);
+
+    setTimeout(() => {
+      setAddedTrackIds((prev) => {
+        const next = new Set(prev);
+        next.delete(track.id);
+        return next;
+      });
+    }, 2500);
   };
 
   return (
@@ -235,97 +245,123 @@ export function MusicSearchModal({
         )}
 
         {/* Results list */}
-        <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+        <div className="space-y-2.5 max-h-[52vh] overflow-y-auto pr-1">
           {results.map((track) => {
             const isCurrent = currentTrackId === track.id || currentTrackId === track.providerTrackId;
+            const isAdded = addedTrackIds.has(track.id);
+
             return (
               <div
                 key={track.id}
-                className={`group flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-2xl border transition-all gap-2.5 sm:gap-3.5 ${
                   isCurrent
-                    ? 'bg-purple-950/30 border-purple-500/50'
+                    ? 'bg-purple-950/30 border-purple-500/50 shadow-glow-purple'
                     : 'bg-surface-850 hover:bg-surface-800/90 border-surface-750/70 hover:border-surface-650'
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
-                  {/* Artwork */}
-                  <div className="relative w-12 h-12 rounded-lg bg-surface-900 border border-surface-750 overflow-hidden shrink-0 flex items-center justify-center">
-                    {track.artworkUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={track.artworkUrl}
-                        alt={track.title}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        onError={(e) => {
-                          // Fallback on broken image link
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <Music className="w-5 h-5 text-neutral-600" />
-                    )}
-                  </div>
-
-                  {/* Track Details */}
-                  <div className="min-w-0 flex-1 text-left">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-white truncate">{track.title}</p>
-                      <ProviderBadge provider={track.provider} />
-                      {!track.isPlayable && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/40">
-                          Unavailable
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-neutral-400 truncate mt-0.5">{track.artistName}</p>
-                    <div className="flex items-center gap-3 text-[11px] text-neutral-500 mt-1">
-                      <span>
-                        {track.durationSeconds > 0
-                          ? formatDuration(track.durationSeconds)
-                          : track.playbackType === 'video_embed' ||
-                            track.provider === 'youtube' ||
-                            track.provider === 'verome'
-                          ? 'Official Video'
-                          : 'Audio Stream'}
-                      </span>
-                      <a
-                        href={track.providerPageUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="hover:text-neutral-300 inline-flex items-center gap-0.5 transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Source <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                    </div>
+                {/* 1. Track Artwork with Hover Play Trigger */}
+                <div
+                  onClick={() => handleSelectTrack(track)}
+                  className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-surface-900 border border-surface-750 overflow-hidden shrink-0 flex items-center justify-center cursor-pointer group-hover:scale-105 transition-transform"
+                  title="Click to play now"
+                >
+                  {track.artworkUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={track.artworkUrl}
+                      alt={track.title}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <Music className="w-5 h-5 text-neutral-600" />
+                  )}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Play className="w-4 h-4 fill-white text-white" />
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleAddToQueue(track)}
-                    disabled={!track.isPlayable}
-                    title={track.isPlayable ? 'Add to shared room queue' : 'Track is unavailable for playback'}
-                    className="text-neutral-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                {/* 2. Track Title, Artist & Unobtrusive Compact Metadata */}
+                <div className="min-w-0 flex-1 text-left">
+                  <h4
+                    onClick={() => handleSelectTrack(track)}
+                    className="text-xs sm:text-sm font-semibold text-white hover:text-purple-300 transition-colors line-clamp-2 leading-snug cursor-pointer break-words"
+                    title={track.title}
                   >
-                    <Plus className="w-4 h-4 mr-1 text-purple-400" />
-                    <span className="hidden sm:inline text-xs">Queue</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="primary"
+                    {track.title}
+                  </h4>
+                  <p className="text-[11px] sm:text-xs text-neutral-400 truncate mt-0.5 font-medium">
+                    {track.artistName}
+                  </p>
+                  <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-neutral-400 mt-1">
+                    {track.durationSeconds > 0 && (
+                      <span>{formatDuration(track.durationSeconds)}</span>
+                    )}
+                    {track.durationSeconds > 0 && <span>•</span>}
+                    <a
+                      href={track.providerPageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="hover:text-purple-300 inline-flex items-center gap-0.5 text-neutral-400 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span>
+                        {track.provider === 'verome'
+                          ? 'YouTube Music'
+                          : track.provider === 'youtube'
+                          ? 'YouTube'
+                          : 'Audius'}
+                      </span>
+                      <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                    </a>
+                    {!track.isPlayable && (
+                      <span className="text-rose-400 font-semibold ml-1">• Unavailable</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Explicit "Add to Queue" and "Play Now" Actions */}
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleQueueClick(track)}
+                    disabled={!track.isPlayable || isAdded}
+                    className={`px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
+                      isAdded
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default'
+                        : 'bg-purple-600/25 hover:bg-purple-600/40 text-purple-200 hover:text-white border border-purple-500/30 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed'
+                    }`}
+                    title={isAdded ? 'Added to queue' : 'Add to shared room queue'}
+                    aria-label="Add to Queue"
+                  >
+                    {isAdded ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Added</span>
+                      </>
+                    ) : (
+                      <>
+                        <ListPlus className="w-3.5 h-3.5 text-purple-300" />
+                        <span className="hidden xs:inline sm:inline">Add to Queue</span>
+                        <span className="xs:hidden sm:hidden">Queue</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => handleSelectTrack(track)}
                     disabled={!track.isPlayable}
-                    title={track.isPlayable ? 'Play track immediately for all members' : 'Track is unavailable for playback'}
-                    className="disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 hover:text-white text-xs border border-white/[0.08] transition-all flex items-center gap-1 shrink-0"
+                    title="Play now for everyone"
+                    aria-label="Play track immediately"
                   >
-                    <Play className="w-3.5 h-3.5 mr-1 fill-white" />
-                    <span className="text-xs">Play Now</span>
-                  </Button>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span className="hidden md:inline">Play</span>
+                  </button>
                 </div>
               </div>
             );
