@@ -1,4 +1,4 @@
-export type MusicProviderId = 'audius' | 'youtube';
+export type MusicProviderId = 'audius' | 'youtube' | 'verome';
 
 export type PlaybackType = 'audio_stream' | 'video_embed';
 

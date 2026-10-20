@@ -1,12 +1,14 @@
 import { MusicProvider, ProviderHealth } from './provider-interface';
 import { AudiusAdapter } from './audius-adapter';
 import { YouTubeAdapter } from './youtube-adapter';
+import { VeromeAdapter } from './verome-adapter';
 import { MusicProviderId, NormalizedTrack, PlaybackType, SearchResult } from '../types/music';
 
 export class ProviderRegistry {
   private providers: Map<MusicProviderId, MusicProvider> = new Map();
 
   constructor() {
+    this.register(new VeromeAdapter());
     this.register(new AudiusAdapter());
     this.register(new YouTubeAdapter());
   }

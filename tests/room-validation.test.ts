@@ -4,6 +4,7 @@ import {
   JoinRoomSchema,
   PlaybackCommandSchema,
   SearchTracksSchema,
+  TrackSchema,
 } from '@/lib/validations/room-schema';
 
 describe('Zod Validation Schemas', () => {
@@ -105,6 +106,38 @@ describe('Zod Validation Schemas', () => {
         query: '   ',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('accepts verome as valid provider in search query', () => {
+      const result = SearchTracksSchema.safeParse({
+        query: 'synthwave',
+        provider: 'verome',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.provider).toBe('verome');
+      }
+    });
+  });
+
+  describe('TrackSchema', () => {
+    it('accepts tracks from verome, audius, and youtube', () => {
+      const veromeTrack = {
+        id: 'verome:dQw4w9WgXcQ',
+        provider: 'verome',
+        providerTrackId: 'dQw4w9WgXcQ',
+        title: 'Never Gonna Give You Up',
+        artistName: 'Rick Astley',
+        durationSeconds: 213,
+        providerPageUrl: 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+        isPlayable: true,
+      };
+
+      const result = TrackSchema.safeParse(veromeTrack);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.provider).toBe('verome');
+      }
     });
   });
 });

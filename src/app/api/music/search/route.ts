@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SearchTracksSchema } from '@/lib/validations/room-schema';
 import { providerRegistry } from '@/lib/providers/provider-registry';
+import { MusicProviderId } from '@/lib/types/music';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +9,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('query') || '';
-    const provider = (searchParams.get('provider') || 'all') as 'all' | 'audius' | 'youtube';
+    const provider = (searchParams.get('provider') || 'all') as 'all' | MusicProviderId;
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '20', 10);
 

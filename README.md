@@ -29,13 +29,17 @@
    - Displays participant attribution (`Added by Robin`).
    - Deterministic queue progression when a song completes.
 6. **Open Music Provider Catalogs**:
-   - **Primary Provider**: [Audius](https://docs.audius.co/) — Decentralized, free-to-stream catalog of indie, electronic, ambient, and lo-fi tracks.
-   - **Secondary Provider**: [YouTube](https://developers.google.com/youtube/v3) — Search millions of tracks via the official YouTube Data API v3 and listen together via the official YouTube IFrame Player API.
+   - **Primary Discovery**: [Verome-API](https://github.com/Kirazul/Verome-API) — YouTube Music catalog search, real-time search suggestions autocomplete, and synced/plain lyrics powered by LRCLib.
+   - **Alternative Audio Catalog**: [Audius](https://docs.audius.co/) — Decentralized, free-to-stream catalog of indie, electronic, ambient, and lo-fi tracks.
+   - **Official Video Catalog**: [YouTube](https://developers.google.com/youtube/v3) — Search millions of tracks via the official YouTube Data API v3 and listen together via the official YouTube IFrame Player API.
    - Honest search results: Song results reflect verified tracks returned by connected provider catalogs.
-7. **Participant Presence & Moderation**:
+7. **Synced Lyrics Display**:
+   - One-click Lyrics viewer inside the room player (`/api/music/lyrics`).
+   - Highlights synchronized lyrics in real time aligned with the room's playback timeline.
+8. **Participant Presence & Moderation**:
    - Real-time online participant tracking.
    - Host moderation tools: kick offending participants, close room for all listeners.
-8. **Independent Local Sound Controls**:
+9. **Independent Local Sound Controls**:
    - Volume and mute are device-specific; adjusting your sound never alters other listeners' volume.
 
 ---
@@ -92,7 +96,7 @@ Database tables reside in `public` schema in Neon Postgres:
 3. **`playback_state`**:
    - `id`: UUID (Primary Key)
    - `room_id`: Foreign key to `rooms(id)` (Unique, ON DELETE CASCADE)
-   - `provider_id`: `'audius' | 'youtube'`
+   - `provider_id`: `'audius' | 'youtube' | 'verome'`
    - `provider_track_id`: Provider track ID
    - `track_metadata`: Full track metadata (JSONB)
    - `playback_status`: `'playing' | 'paused' | 'ended' | 'buffering'`
@@ -103,7 +107,7 @@ Database tables reside in `public` schema in Neon Postgres:
 4. **`queue_items`**:
    - `id`: UUID (Primary Key)
    - `room_id`: Foreign key to `rooms(id)` (ON DELETE CASCADE)
-   - `provider_id`: `'audius' | 'youtube'`
+   - `provider_id`: `'audius' | 'youtube' | 'verome'`
    - `provider_track_id`: Provider track identifier
    - `track_metadata`: Track details (JSONB)
    - `added_by`, `added_by_name`: Queuer attribution
@@ -118,6 +122,7 @@ node --env-file=.env.local scripts/run-migrations.js
 ```
 - `001_vibesync_schema.sql`: Initial core schema (rooms, room_members, playback_state, queue_items).
 - `002_youtube_provider.sql`: Check constraint update enabling official YouTube Data API v3 and YouTube IFrame Player API.
+- `003_verome_provider.sql`: Check constraint update enabling Verome (YouTube Music) catalog persistence.
 
 ---
 
@@ -163,7 +168,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 VibeSync maintains an automated test suite verifying music providers, audio drift math, security sessions, and real database workflows:
 
 ```bash
-# Run full automated test suite (39 tests across 7 test suites)
+# Run full automated test suite (46 tests across 7 test suites)
 npm test
 
 # Run TypeScript strict type verification

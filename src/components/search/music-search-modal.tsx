@@ -27,11 +27,40 @@ export function MusicSearchModal({
   const [provider, setProvider] = useState<MusicProviderId | 'all'>('all');
   const [results, setResults] = useState<NormalizedTrack[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const suggestionTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Autocomplete suggestions
+  useEffect(() => {
+    if (!isOpen || query.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    if (suggestionTimer.current) clearTimeout(suggestionTimer.current);
+    suggestionTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/music/suggestions?query=${encodeURIComponent(query.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.suggestions)) {
+            setSuggestions(data.suggestions.slice(0, 5));
+          }
+        }
+      } catch {
+        // Silently skip suggestions failure
+      }
+    }, 250);
+
+    return () => {
+      if (suggestionTimer.current) clearTimeout(suggestionTimer.current);
+    };
+  }, [query, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -118,20 +147,46 @@ export function MusicSearchModal({
           )}
         </div>
 
+        {/* Suggestion Chips */}
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="text-[11px] text-neutral-500 mr-1">Suggestions:</span>
+            {suggestions.map((sug, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  setQuery(sug);
+                  executeSearch(sug, provider);
+                }}
+                className="px-2.5 py-0.5 rounded-full text-[11px] bg-surface-900 hover:bg-purple-950/60 text-neutral-300 hover:text-purple-300 border border-surface-700/70 hover:border-purple-800/50 transition-colors"
+              >
+                {sug}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Provider tabs */}
-        <div className="flex items-center gap-2 pb-1 border-b border-surface-800 text-xs">
-          <span className="text-neutral-400 mr-1">Catalog:</span>
-          {(['all', 'audius', 'youtube'] as const).map((p) => (
+        <div className="flex items-center gap-2 pb-1 border-b border-surface-800 text-xs overflow-x-auto">
+          <span className="text-neutral-400 mr-1 shrink-0">Catalog:</span>
+          {(['all', 'verome', 'audius', 'youtube'] as const).map((p) => (
             <button
               key={p}
               onClick={() => setProvider(p)}
-              className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+              className={`px-3 py-1 rounded-lg font-medium transition-colors shrink-0 ${
                 provider === p
                   ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-surface-800'
               }`}
             >
-              {p === 'all' ? 'All Providers' : p === 'audius' ? 'Audius' : 'YouTube'}
+              {p === 'all'
+                ? 'All Providers'
+                : p === 'verome'
+                  ? 'YouTube Music'
+                  : p === 'audius'
+                    ? 'Audius'
+                    : 'YouTube'}
             </button>
           ))}
         </div>
@@ -212,7 +267,9 @@ export function MusicSearchModal({
                       <span>
                         {track.durationSeconds > 0
                           ? formatDuration(track.durationSeconds)
-                          : track.playbackType === 'video_embed' || track.provider === 'youtube'
+                          : track.playbackType === 'video_embed' ||
+                            track.provider === 'youtube' ||
+                            track.provider === 'verome'
                           ? 'Official Video'
                           : 'Audio Stream'}
                       </span>
@@ -266,27 +323,63 @@ export function MusicSearchModal({
                 No playable tracks found for &ldquo;{query}&rdquo;
               </p>
               <div className="text-xs text-neutral-400 max-w-sm mx-auto leading-relaxed space-y-2">
-                {provider === 'audius' ? (
+                {provider === 'verome' ? (
                   <p>
-                    Audius did not return tracks for this search. Try switching to the{' '}
+                    YouTube Music (Verome) returned no tracks or the service is offline. Try switching to the{' '}
                     <button
                       type="button"
                       onClick={() => setProvider('youtube')}
                       className="text-purple-400 underline font-semibold hover:text-purple-300"
                     >
-                      YouTube catalog
+                      YouTube
                     </button>{' '}
-                    to find official releases and music videos.
-                  </p>
-                ) : provider === 'youtube' ? (
-                  <p>
-                    YouTube did not return embeddable videos for this search. Try searching for another track or explore indie and electronic music on the{' '}
+                    or{' '}
                     <button
                       type="button"
                       onClick={() => setProvider('audius')}
                       className="text-purple-400 underline font-semibold hover:text-purple-300"
                     >
-                      Audius catalog
+                      Audius
+                    </button>{' '}
+                    catalogs.
+                  </p>
+                ) : provider === 'audius' ? (
+                  <p>
+                    Audius did not return tracks for this search. Try switching to{' '}
+                    <button
+                      type="button"
+                      onClick={() => setProvider('verome')}
+                      className="text-cyan-400 underline font-semibold hover:text-cyan-300"
+                    >
+                      YouTube Music
+                    </button>{' '}
+                    or{' '}
+                    <button
+                      type="button"
+                      onClick={() => setProvider('youtube')}
+                      className="text-purple-400 underline font-semibold hover:text-purple-300"
+                    >
+                      YouTube
+                    </button>{' '}
+                    to find official releases and music videos.
+                  </p>
+                ) : provider === 'youtube' ? (
+                  <p>
+                    YouTube did not return embeddable videos for this search. Try searching for another track or explore songs on{' '}
+                    <button
+                      type="button"
+                      onClick={() => setProvider('verome')}
+                      className="text-cyan-400 underline font-semibold hover:text-cyan-300"
+                    >
+                      YouTube Music
+                    </button>{' '}
+                    or{' '}
+                    <button
+                      type="button"
+                      onClick={() => setProvider('audius')}
+                      className="text-purple-400 underline font-semibold hover:text-purple-300"
+                    >
+                      Audius
                     </button>.
                   </p>
                 ) : (

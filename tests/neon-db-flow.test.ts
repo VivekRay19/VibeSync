@@ -226,6 +226,46 @@ describe('Neon Database Collaborative Lifecycle Flow', () => {
     expect(removeSuccess).toBe(true);
   });
 
+  it('supports Verome tracks in playback and queue with Neon DB check constraints', async () => {
+    expect(createdRoomId).not.toBeNull();
+
+    const sampleVeromeTrack: NormalizedTrack = {
+      id: 'verome:dQw4w9WgXcQ',
+      provider: 'verome',
+      providerTrackId: 'dQw4w9WgXcQ',
+      title: 'Never Gonna Give You Up',
+      artistName: 'Rick Astley',
+      durationSeconds: 213,
+      providerPageUrl: 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+      isPlayable: true,
+    };
+
+    // 1. Select Verome track
+    const selectVerome = await updatePlaybackCommand({
+      roomId: createdRoomId!,
+      command: 'SELECT_TRACK',
+      positionSeconds: 0,
+      revision: 8,
+      userId: ownerId,
+      displayName: 'Alice Host',
+      track: sampleVeromeTrack,
+    });
+
+    expect(selectVerome.provider).toBe('verome');
+    expect(selectVerome.providerTrackId).toBe('dQw4w9WgXcQ');
+    expect(selectVerome.track.provider).toBe('verome');
+
+    // 2. Add Verome track to queue
+    const queueItem = await addQueueItem(createdRoomId!, sampleVeromeTrack, guestId, 'Bob Listener');
+    expect(queueItem.id).toBeDefined();
+    expect(queueItem.track.provider).toBe('verome');
+    expect(queueItem.track.providerTrackId).toBe('dQw4w9WgXcQ');
+
+    // 3. Remove item from queue
+    const removeSuccess = await removeQueueItem(createdRoomId!, queueItem.id);
+    expect(removeSuccess).toBe(true);
+  });
+
   it('enforces moderation permissions: kick and room close', async () => {
     expect(createdRoomId).not.toBeNull();
 

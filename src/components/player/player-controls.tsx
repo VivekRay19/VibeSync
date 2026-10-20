@@ -15,7 +15,9 @@ import {
   ExternalLink,
   Music,
   User,
+  Mic2,
 } from 'lucide-react';
+import { LyricsModal } from './lyrics-modal';
 
 interface PlayerControlsProps {
   playbackState: PlaybackState;
@@ -52,6 +54,7 @@ export function PlayerControls({
 }: PlayerControlsProps) {
   const [isSeekingLocally, setIsSeekingLocally] = useState(false);
   const [localSeekValue, setLocalSeekValue] = useState(currentSeconds);
+  const [isLyricsOpen, setIsLyricsOpen] = useState(false);
 
   useEffect(() => {
     if (!isSeekingLocally) {
@@ -61,7 +64,8 @@ export function PlayerControls({
 
   const track = playbackState.track;
   const isPlaying = playbackState.playbackStatus === 'playing';
-  const isVideoEmbed = track?.playbackType === 'video_embed' || track?.provider === 'youtube';
+  const isVideoEmbed =
+    track?.playbackType === 'video_embed' || track?.provider === 'youtube' || track?.provider === 'verome';
   const duration = totalDuration > 0 ? totalDuration : track?.durationSeconds || 1;
   const progressPercent = Math.min(100, Math.max(0, (localSeekValue / duration) * 100));
 
@@ -169,7 +173,12 @@ export function PlayerControls({
                 rel="noreferrer"
                 className="text-xs text-neutral-400 hover:text-purple-400 inline-flex items-center gap-1 transition-colors"
               >
-                View on {track.provider === 'audius' ? 'Audius.co' : 'YouTube.com'}{' '}
+                View on{' '}
+                {track.provider === 'audius'
+                  ? 'Audius.co'
+                  : track.provider === 'verome'
+                    ? 'YouTube Music'
+                    : 'YouTube.com'}{' '}
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
@@ -207,16 +216,31 @@ export function PlayerControls({
 
       {/* Collaborative Controls Toolbar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 z-10 border-t border-surface-800/80">
-        {/* Search CTA */}
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={onOpenSearch}
-          className="w-full sm:w-auto text-xs"
-        >
-          <Search className="w-3.5 h-3.5 mr-1.5 text-purple-400" />
-          Search Catalog
-        </Button>
+        {/* Search CTA & Lyrics Action */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onOpenSearch}
+            className="flex-1 sm:flex-initial text-xs"
+          >
+            <Search className="w-3.5 h-3.5 mr-1.5 text-purple-400" />
+            Search Catalog
+          </Button>
+
+          {track && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsLyricsOpen(true)}
+              className="text-xs text-neutral-300 hover:text-purple-300 hover:bg-surface-800 border-surface-700/80"
+              title="View lyrics for this song"
+            >
+              <Mic2 className="w-3.5 h-3.5 mr-1.5 text-purple-400" />
+              Lyrics
+            </Button>
+          )}
+        </div>
 
         {/* Center Playback Controls */}
         <div className="flex items-center gap-3">
@@ -275,6 +299,14 @@ export function PlayerControls({
           </span>
         </div>
       </div>
+
+      {/* Synced Lyrics Modal */}
+      <LyricsModal
+        isOpen={isLyricsOpen}
+        onClose={() => setIsLyricsOpen(false)}
+        track={track || null}
+        currentSeconds={localSeekValue}
+      />
     </div>
   );
 }

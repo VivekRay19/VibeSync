@@ -511,7 +511,9 @@ export default function RoomPage() {
             {playbackState.track &&
             (playbackState.track.playbackType === 'video_embed' ||
               playbackState.provider === 'youtube' ||
-              playbackState.track.provider === 'youtube') ? (
+              playbackState.provider === 'verome' ||
+              playbackState.track.provider === 'youtube' ||
+              playbackState.track.provider === 'verome') ? (
               <YouTubePlayer
                 playbackState={playbackState}
                 onTrackEnded={handleTrackEnded}
