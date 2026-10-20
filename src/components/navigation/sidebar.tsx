@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -13,6 +13,7 @@ import {
   Heart,
   Radio,
 } from 'lucide-react';
+import { getLikedTracks, subscribeLikedTracks } from '@/lib/storage/favorites';
 
 interface SidebarProps {
   onOpenCreateRoom: () => void;
@@ -22,13 +23,7 @@ interface SidebarProps {
   activePlaylist?: string | null;
 }
 
-const PLAYLISTS = [
-  {
-    id: 'liked-songs',
-    name: 'Liked Songs',
-    count: '214 songs',
-    isLiked: true,
-  },
+const STATIC_PLAYLISTS = [
   {
     id: 'chill-vibes',
     name: 'Chill Vibes',
@@ -70,6 +65,15 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const isHome = pathname === '/';
+  const [likedCount, setLikedCount] = useState(() => getLikedTracks().length);
+
+  useEffect(() => {
+    setLikedCount(getLikedTracks().length);
+    const unsubscribe = subscribeLikedTracks((tracks) => {
+      setLikedCount(tracks.length);
+    });
+    return unsubscribe;
+  }, []);
 
   return (
     <aside className="w-64 shrink-0 flex flex-col h-full glass-panel rounded-3xl p-4 select-none overflow-hidden">
@@ -161,7 +165,28 @@ export function Sidebar({
 
         {/* Scrollable Playlist Items */}
         <div className="flex-1 overflow-y-auto space-y-1 pr-1 -mr-1">
-          {PLAYLISTS.map((pl) => {
+          {/* Liked Songs dynamic item */}
+          <button
+            type="button"
+            onClick={() => onSelectPlaylist?.('Liked Songs')}
+            className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl transition-all text-left ${
+              activePlaylist === 'Liked Songs'
+                ? 'bg-white/[0.08] text-white border border-white/[0.08]'
+                : 'text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.03]'
+            }`}
+          >
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center shrink-0 shadow-sm">
+              <Heart className="w-4 h-4 fill-white text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold truncate text-white">Liked Songs</p>
+              <p className="text-[10px] text-neutral-500 truncate">
+                {likedCount} {likedCount === 1 ? 'song' : 'songs'}
+              </p>
+            </div>
+          </button>
+
+          {STATIC_PLAYLISTS.map((pl) => {
             const isSelected = activePlaylist === pl.name;
             return (
               <button
@@ -174,20 +199,14 @@ export function Sidebar({
                     : 'text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.03]'
                 }`}
               >
-                {pl.isLiked ? (
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center shrink-0 shadow-sm">
-                    <Heart className="w-4 h-4 fill-white text-white" />
-                  </div>
-                ) : (
-                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-surface-900 border border-white/[0.08] shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={pl.artworkUrl}
-                      alt={pl.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                )}
+                <div className="w-8 h-8 rounded-lg overflow-hidden bg-surface-900 border border-white/[0.08] shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={pl.artworkUrl}
+                    alt={pl.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold truncate text-white">{pl.name}</p>
                   <p className="text-[10px] text-neutral-500 truncate">{pl.count}</p>

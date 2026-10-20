@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Users,
   MoreHorizontal,
@@ -11,14 +11,23 @@ import {
   Pause,
   SkipForward,
   Repeat,
-  Menu,
   Music2,
   Trash2,
   QrCode,
+  ChevronUp,
+  ChevronDown,
+  Copy,
+  Check,
+  Info,
 } from 'lucide-react';
 import { PlaybackState, QueueItem, NormalizedTrack, Room } from '@/lib/types/music';
 import { PresenceState } from '@/lib/types/realtime';
 import { formatDuration } from '@/lib/utils';
+import {
+  isTrackLiked,
+  toggleLikeTrack,
+  subscribeLikedTracks,
+} from '@/lib/storage/favorites';
 
 interface ListeningRoomPanelProps {
   room: Room | null;
@@ -35,6 +44,12 @@ interface ListeningRoomPanelProps {
   onSkipPrev?: () => void;
   onSelectTrack: (track: NormalizedTrack) => void;
   onRemoveQueueItem?: (queueItemId: string) => void;
+  onMoveQueueItem?: (queueItemId: string, direction: 'UP' | 'DOWN') => void;
+  onShuffleQueue?: () => void;
+  isShuffle?: boolean;
+  onToggleShuffle?: () => void;
+  isRepeat?: boolean;
+  onToggleRepeat?: () => void;
   onLeaveRoom: () => void;
   isBuffering?: boolean;
   onOpenInvite?: () => void;
@@ -55,15 +70,92 @@ export function ListeningRoomPanel({
   onSkipPrev,
   onSelectTrack,
   onRemoveQueueItem,
+  onMoveQueueItem,
+  onShuffleQueue,
+  isShuffle = false,
+  onToggleShuffle,
+  isRepeat = false,
+  onToggleRepeat,
   onLeaveRoom,
   isBuffering = false,
   onOpenInvite,
 }: ListeningRoomPanelProps) {
-  const [isLiked, setIsLiked] = useState(false);
-  const [isShuffle, setIsShuffle] = useState(false);
-  const [isRepeat, setIsRepeat] = useState(false);
+  const track = playbackState?.track;
+  const [isLiked, setIsLiked] = useState(() => isTrackLiked(track?.id));
+  const [localShuffle, setLocalShuffle] = useState(isShuffle);
+  const [localRepeat, setLocalRepeat] = useState(isRepeat);
   const [isSeekingLocally, setIsSeekingLocally] = useState(false);
   const [localSeekSeconds, setLocalSeekSeconds] = useState(currentSeconds);
+  const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const roomMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Sync favorites state
+  useEffect(() => {
+    setIsLiked(isTrackLiked(track?.id));
+    const unsubscribe = subscribeLikedTracks(() => {
+      setIsLiked(isTrackLiked(track?.id));
+    });
+    return unsubscribe;
+  }, [track?.id]);
+
+  useEffect(() => {
+    setLocalShuffle(isShuffle);
+  }, [isShuffle]);
+
+  useEffect(() => {
+    setLocalRepeat(isRepeat);
+  }, [isRepeat]);
+
+  // Close room menu on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (roomMenuRef.current && !roomMenuRef.current.contains(e.target as Node)) {
+        setIsRoomMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const handleToggleLike = () => {
+    if (track) {
+      const nowLiked = toggleLikeTrack(track);
+      setIsLiked(nowLiked);
+    }
+  };
+
+  const handleShuffleClick = () => {
+    setLocalShuffle((prev) => !prev);
+    if (onShuffleQueue) {
+      onShuffleQueue();
+    } else {
+      onToggleShuffle?.();
+    }
+  };
+
+  const handleRepeatClick = () => {
+    setLocalRepeat((prev) => !prev);
+    onToggleRepeat?.();
+  };
+
+  const copyRoomCode = () => {
+    if (room?.roomCode && typeof navigator !== 'undefined') {
+      navigator.clipboard.writeText(room.roomCode);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const copyRoomLink = () => {
+    if (typeof window !== 'undefined' && room?.roomCode) {
+      const url = `${window.location.origin}/room/${room.roomCode}`;
+      navigator.clipboard.writeText(url);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
 
   // Sync seek seconds when not dragging
   React.useEffect(() => {
@@ -72,7 +164,6 @@ export function ListeningRoomPanel({
     }
   }, [currentSeconds, isSeekingLocally]);
 
-  const track = playbackState?.track;
   const duration = totalDuration > 0 ? totalDuration : track?.durationSeconds || 1;
   const progressPercent = Math.min(100, Math.max(0, (localSeekSeconds / duration) * 100));
 
@@ -145,12 +236,59 @@ export function ListeningRoomPanel({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            className="p-1 text-neutral-400 hover:text-white transition-colors"
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
+
+          {/* More Options Popover */}
+          <div ref={roomMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setIsRoomMenuOpen((prev) => !prev)}
+              className="p-1 text-neutral-400 hover:text-white transition-colors"
+              title="Room options and info"
+              aria-label="Room options"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+
+            {isRoomMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-48 rounded-2xl glass-panel p-1.5 shadow-liquid-panel z-50 animate-in fade-in zoom-in-95 border border-white/[0.12] space-y-1">
+                <div className="px-3 py-1.5 border-b border-white/[0.06] mb-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                    Room Details
+                  </p>
+                  <p className="text-xs font-semibold text-white truncate mt-0.5">{roomTitle}</p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={copyRoomCode}
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs text-neutral-200 hover:text-white hover:bg-white/[0.06] transition-colors text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <Copy className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Copy Code: {room?.roomCode}</span>
+                  </span>
+                  {copiedCode && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={copyRoomLink}
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs text-neutral-200 hover:text-white hover:bg-white/[0.06] transition-colors text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <QrCode className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Copy Room Link</span>
+                  </span>
+                  {copiedLink && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+
+                <div className="px-3 py-1.5 text-[10px] text-neutral-400 flex items-center gap-1.5 border-t border-white/[0.06] mt-1">
+                  <Info className="w-3 h-3 text-neutral-500" />
+                  <span>{memberCount} active in session</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -189,9 +327,10 @@ export function ListeningRoomPanel({
 
             <button
               type="button"
-              onClick={() => setIsLiked((prev) => !prev)}
+              onClick={handleToggleLike}
               className="p-1.5 text-neutral-400 hover:text-white transition-colors shrink-0"
-              title="Like song"
+              title={isLiked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+              aria-label="Save to Liked Songs"
             >
               <Heart
                 className={`w-4 h-4 transition-colors ${
@@ -233,11 +372,12 @@ export function ListeningRoomPanel({
           <div className="flex items-center justify-between pt-1 px-1">
             <button
               type="button"
-              onClick={() => setIsShuffle((prev) => !prev)}
+              onClick={handleShuffleClick}
               className={`p-1.5 rounded-lg transition-colors ${
-                isShuffle ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
+                localShuffle ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
               }`}
-              title="Shuffle"
+              title={localShuffle ? 'Shuffle active' : 'Shuffle queue'}
+              aria-label="Toggle Shuffle"
             >
               <Shuffle className="w-3.5 h-3.5" />
             </button>
@@ -278,11 +418,12 @@ export function ListeningRoomPanel({
 
             <button
               type="button"
-              onClick={() => setIsRepeat((prev) => !prev)}
+              onClick={handleRepeatClick}
               className={`p-1.5 rounded-lg transition-colors ${
-                isRepeat ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
+                localRepeat ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
               }`}
-              title="Repeat"
+              title={localRepeat ? 'Repeat active' : 'Repeat track'}
+              aria-label="Toggle Repeat"
             >
               <Repeat className="w-3.5 h-3.5" />
             </button>
@@ -293,12 +434,25 @@ export function ListeningRoomPanel({
       {/* 4. Up Next Queue Section */}
       <div className="flex-1 flex flex-col min-h-0 space-y-2">
         <div className="flex items-center justify-between px-1">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
-            Up Next
-          </span>
-          <span className="text-[10px] text-neutral-500">
-            {queue.length} {queue.length === 1 ? 'song' : 'songs'}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+              Up Next
+            </span>
+            <span className="text-[10px] text-neutral-500">
+              {queue.length} {queue.length === 1 ? 'song' : 'songs'}
+            </span>
+          </div>
+          {queue.length > 1 && (
+            <button
+              type="button"
+              onClick={handleShuffleClick}
+              className="px-2 py-0.5 rounded-md text-[10px] font-semibold text-neutral-400 hover:text-purple-300 hover:bg-white/[0.04] transition-all flex items-center gap-1"
+              title="Shuffle queue order"
+            >
+              <Shuffle className="w-3 h-3" />
+              <span>Shuffle</span>
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 -mr-1">
@@ -308,7 +462,7 @@ export function ListeningRoomPanel({
               <p className="text-[10px] text-neutral-500">Search songs to add to the queue</p>
             </div>
           ) : (
-            queue.map((item) => (
+            queue.map((item, idx) => (
               <div
                 key={item.id}
                 className="group flex items-center justify-between gap-2.5 p-2 rounded-xl glass-card hover:bg-white/[0.08] transition-all"
@@ -342,19 +496,40 @@ export function ListeningRoomPanel({
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  {/* Up / Down reorder buttons */}
+                  {onMoveQueueItem && idx > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onMoveQueueItem(item.id, 'UP')}
+                      className="p-1 rounded text-neutral-500 hover:text-white transition-colors"
+                      title="Move track up"
+                      aria-label="Move Up"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {onMoveQueueItem && idx < queue.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={() => onMoveQueueItem(item.id, 'DOWN')}
+                      className="p-1 rounded text-neutral-500 hover:text-white transition-colors"
+                      title="Move track down"
+                      aria-label="Move Down"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   {onRemoveQueueItem && (
                     <button
                       type="button"
                       onClick={() => onRemoveQueueItem(item.id)}
-                      className="p-1 rounded text-neutral-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="p-1 rounded text-neutral-500 hover:text-rose-400 transition-colors"
                       title="Remove from queue"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
-                  <div className="text-neutral-500 cursor-grab p-1">
-                    <Menu className="w-3.5 h-3.5" />
-                  </div>
                 </div>
               </div>
             ))

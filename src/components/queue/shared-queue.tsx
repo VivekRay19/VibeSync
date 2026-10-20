@@ -4,7 +4,7 @@ import React from 'react';
 import { QueueItem, NormalizedTrack } from '@/lib/types/music';
 import { formatDuration } from '@/lib/utils';
 import { Button } from '../ui/button';
-import { ListMusic, Play, Trash2, Search, User, Music } from 'lucide-react';
+import { ListMusic, Play, Trash2, Search, User, Music, ChevronUp, ChevronDown, Shuffle } from 'lucide-react';
 
 interface SharedQueueProps {
   queue: QueueItem[];
@@ -13,6 +13,8 @@ interface SharedQueueProps {
   isRoomOwner: boolean;
   onPlayNow: (track: NormalizedTrack, queueItemId: string) => void;
   onRemoveItem: (queueItemId: string) => void;
+  onMoveItem?: (queueItemId: string, direction: 'UP' | 'DOWN') => void;
+  onShuffleQueue?: () => void;
   onOpenSearch: () => void;
 }
 
@@ -23,6 +25,8 @@ export function SharedQueue({
   isRoomOwner,
   onPlayNow,
   onRemoveItem,
+  onMoveItem,
+  onShuffleQueue,
   onOpenSearch,
 }: SharedQueueProps) {
   return (
@@ -35,10 +39,24 @@ export function SharedQueue({
             {queue.length}
           </span>
         </div>
-        <Button size="sm" variant="outline" onClick={onOpenSearch} className="text-xs">
-          <Search className="w-3.5 h-3.5 mr-1" />
-          Add Track
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {onShuffleQueue && queue.length > 1 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onShuffleQueue}
+              className="h-8 px-2.5 text-xs text-neutral-300 hover:text-white"
+              title="Shuffle queue"
+            >
+              <Shuffle className="w-3.5 h-3.5 mr-1" />
+              Shuffle
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={onOpenSearch} className="h-8 px-2.5 text-xs">
+            <Search className="w-3.5 h-3.5 mr-1" />
+            Add Track
+          </Button>
+        </div>
       </div>
 
       {queue.length === 0 ? (
@@ -111,6 +129,28 @@ export function SharedQueue({
 
                 {/* Actions */}
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {onMoveItem && queue.length > 1 && (
+                    <div className="flex flex-col opacity-60 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => onMoveItem(item.id, 'UP')}
+                        disabled={idx === 0}
+                        className="p-1 text-neutral-400 hover:text-white disabled:opacity-20 disabled:hover:text-neutral-400 transition-colors"
+                        title="Move up"
+                        aria-label="Move item up"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onMoveItem(item.id, 'DOWN')}
+                        disabled={idx === queue.length - 1}
+                        className="p-1 text-neutral-400 hover:text-white disabled:opacity-20 disabled:hover:text-neutral-400 transition-colors"
+                        title="Move down"
+                        aria-label="Move item down"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"

@@ -35,6 +35,16 @@ export function AudioPlayer({
 
   const prevTrackIdRef = useRef<string | null>(null);
   const isAdvancingRef = useRef(false);
+  const scheduledTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear pending timers on unmount
+  useEffect(() => {
+    return () => {
+      if (scheduledTimerRef.current) {
+        clearTimeout(scheduledTimerRef.current);
+      }
+    };
+  }, []);
 
   // Calibrate server clock offset whenever playbackState timestamp updates
   useEffect(() => {
@@ -93,6 +103,42 @@ export function AudioPlayer({
     if (!audio || !resolvedStreamUrl) return;
 
     if (playbackState.playbackStatus === 'playing') {
+      const currentServerTime = syncEngine.getEstimatedServerTimeMs();
+      const scheduledAt = playbackState.scheduledAt;
+
+      // Check if playback start is scheduled in the future
+      if (scheduledAt && currentServerTime < scheduledAt) {
+        const delayMs = Math.max(0, scheduledAt - currentServerTime);
+
+        // Pre-position audio at the base position so buffer is ready
+        if (Math.abs(audio.currentTime - playbackState.basePositionSeconds) > 0.2) {
+          audio.currentTime = playbackState.basePositionSeconds;
+        }
+        if (!audio.paused) {
+          audio.pause();
+        }
+
+        if (scheduledTimerRef.current) {
+          clearTimeout(scheduledTimerRef.current);
+        }
+        scheduledTimerRef.current = setTimeout(() => {
+          if (audioRef.current && !autoplayBlocked) {
+            audioRef.current.play().catch((err) => {
+              if (err.name === 'NotAllowedError') {
+                setAutoplayBlocked(true);
+              }
+            });
+          }
+        }, delayMs);
+        return;
+      }
+
+      // Scheduled execution reached or no scheduledAt: cancel pending timer
+      if (scheduledTimerRef.current) {
+        clearTimeout(scheduledTimerRef.current);
+        scheduledTimerRef.current = null;
+      }
+
       // Evaluate drift with sub-500ms threshold and micro-drift adjustment
       const { needsSeek, targetPosition, driftSeconds, suggestedRate } = syncEngine.shouldCorrectDrift(
         audio.currentTime,
@@ -122,6 +168,10 @@ export function AudioPlayer({
         }
       }
     } else if (playbackState.playbackStatus === 'paused') {
+      if (scheduledTimerRef.current) {
+        clearTimeout(scheduledTimerRef.current);
+        scheduledTimerRef.current = null;
+      }
       if (!audio.paused) {
         audio.pause();
       }
@@ -135,10 +185,10 @@ export function AudioPlayer({
     }
   }, [playbackState, resolvedStreamUrl, isBuffering, autoplayBlocked, onDriftCorrected]);
 
-  // IMMEDIATE execution on authoritative room state update (zero delay on play/pause)
+  // IMMEDIATE execution on authoritative room state update
   useEffect(() => {
     syncPlayback();
-  }, [playbackState.playbackStatus, playbackState.revision, playbackState.basePositionSeconds, syncPlayback]);
+  }, [playbackState.playbackStatus, playbackState.revision, playbackState.basePositionSeconds, playbackState.scheduledAt, syncPlayback]);
 
   // Periodic drift check interval (every 600ms)
   useEffect(() => {

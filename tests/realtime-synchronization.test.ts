@@ -222,4 +222,140 @@ describe('Real-Time Cross-Device Playback Synchronization', () => {
     const isModifiedB = serverState.revision > clientRevB;
     expect(isModifiedB).toBe(true);
   });
+
+  it('holds playback position when scheduledAt is in the future and eliminates startup jitter', () => {
+    const futureScheduledAt = Date.now() + 1000; // 1 second in the future
+    const scheduledState: PlaybackState = {
+      roomId: 'room-future',
+      provider: 'verome',
+      providerTrackId: 'u9n7Cw-4_PE',
+      track: mockVeromeTrack,
+      playbackStatus: 'playing',
+      basePositionSeconds: 15,
+      scheduledAt: futureScheduledAt,
+      updatedAtServer: new Date().toISOString(),
+      revision: 8,
+      updatedBy: 'host-1',
+    };
+
+    // Expected position should be held exactly at basePositionSeconds while waiting for scheduled execution
+    const position = phoneSyncEngine.calculateExpectedPosition(scheduledState);
+    expect(position).toBe(15);
+
+    // shouldCorrectDrift should return needsSeek: false because the track has not reached execution time
+    const drift = phoneSyncEngine.shouldCorrectDrift(15, scheduledState, false, 'youtube');
+    expect(drift.needsSeek).toBe(false);
+    expect(drift.targetPosition).toBe(15);
+  });
+
+  it('validates queue actions: MOVE, REORDER, and SHUFFLE schemas', async () => {
+    const { QueueActionSchema } = await import('@/lib/validations/room-schema');
+
+    // 1. Valid MOVE action
+    const moveResult = QueueActionSchema.safeParse({
+      roomId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      action: 'MOVE',
+      queueItemId: 'item_123',
+      direction: 'UP',
+      userId: 'user-1',
+      displayName: 'Alice',
+    });
+    expect(moveResult.success).toBe(true);
+
+    // 2. Valid SHUFFLE action
+    const shuffleResult = QueueActionSchema.safeParse({
+      roomId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      action: 'SHUFFLE',
+      userId: 'user-1',
+      displayName: 'Alice',
+    });
+    expect(shuffleResult.success).toBe(true);
+
+    // 3. Valid REORDER action
+    const reorderResult = QueueActionSchema.safeParse({
+      roomId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      action: 'REORDER',
+      orderedItemIds: ['item_3', 'item_1', 'item_2'],
+      userId: 'user-1',
+      displayName: 'Alice',
+    });
+    expect(reorderResult.success).toBe(true);
+  });
+
+  it('manages favorite liked songs persistence and event dispatching', async () => {
+    // Provide temporary mock storage for node environment
+    const storage: Record<string, string> = {};
+    const mockLocalStorage = {
+      getItem: (key: string) => storage[key] || null,
+      setItem: (key: string, value: string) => { storage[key] = value; },
+      removeItem: (key: string) => { delete storage[key]; },
+    };
+
+    const listeners: Record<string, Array<() => void>> = {};
+    const mockWindow = {
+      addEventListener: (type: string, cb: () => void) => {
+        listeners[type] = listeners[type] || [];
+        listeners[type].push(cb);
+      },
+      removeEventListener: (type: string, cb: () => void) => {
+        if (listeners[type]) {
+          listeners[type] = listeners[type].filter((l) => l !== cb);
+        }
+      },
+      dispatchEvent: (event: { type: string }) => {
+        if (listeners[event.type]) {
+          listeners[event.type].forEach((cb) => cb());
+        }
+      },
+    };
+
+    // Assign mock globals
+    const originalWindow = global.window;
+    const originalLocalStorage = global.localStorage;
+    // @ts-expect-error mock window
+    global.window = mockWindow;
+    // @ts-expect-error mock localStorage
+    global.localStorage = mockLocalStorage;
+    // @ts-expect-error mock Event
+    global.Event = class Event { type: string; constructor(type: string) { this.type = type; } };
+
+    const { getLikedTracks, isTrackLiked, toggleLikeTrack, subscribeLikedTracks } = await import('@/lib/storage/favorites');
+
+    let notifiedTracksCount = 0;
+    const unsubscribe = subscribeLikedTracks((tracks) => {
+      notifiedTracksCount = tracks.length;
+    });
+
+    const testTrack: NormalizedTrack = {
+      id: 'verome:test_123',
+      provider: 'verome',
+      providerTrackId: 'test_123',
+      title: 'Starboy',
+      artistName: 'The Weeknd',
+      durationSeconds: 230,
+      providerPageUrl: 'https://music.youtube.com/watch?v=test_123',
+      isPlayable: true,
+    };
+
+    // 1. Initial state
+    expect(isTrackLiked(testTrack.id)).toBe(false);
+
+    // 2. Toggle like (add)
+    const isNowLiked = toggleLikeTrack(testTrack);
+    expect(isNowLiked).toBe(true);
+    expect(isTrackLiked(testTrack.id)).toBe(true);
+    expect(notifiedTracksCount).toBeGreaterThan(0);
+
+    // 3. Toggle like again (remove)
+    const isUnliked = toggleLikeTrack(testTrack);
+    expect(isUnliked).toBe(false);
+    expect(isTrackLiked(testTrack.id)).toBe(false);
+
+    unsubscribe();
+
+    // Restore globals
+    global.window = originalWindow;
+    global.localStorage = originalLocalStorage;
+  });
 });
+

@@ -32,6 +32,12 @@ interface LiquidGlassLayoutProps {
   onSkipPrev?: () => void;
   onSelectTrack: (track: NormalizedTrack) => void;
   onRemoveQueueItem?: (queueItemId: string) => void;
+  onMoveQueueItem?: (queueItemId: string, direction: 'UP' | 'DOWN') => void;
+  onShuffleQueue?: () => void;
+  isShuffle?: boolean;
+  onToggleShuffle?: () => void;
+  isRepeat?: boolean;
+  onToggleRepeat?: () => void;
   onVolumeChange: (vol: number) => void;
   onToggleMute: () => void;
   onOpenCreateRoom: () => void;
@@ -69,6 +75,12 @@ export function LiquidGlassLayout({
   onSkipPrev,
   onSelectTrack,
   onRemoveQueueItem,
+  onMoveQueueItem,
+  onShuffleQueue,
+  isShuffle,
+  onToggleShuffle,
+  isRepeat,
+  onToggleRepeat,
   onVolumeChange,
   onToggleMute,
   onOpenCreateRoom,
@@ -137,15 +149,21 @@ export function LiquidGlassLayout({
               />
             </div>
 
-            {/* Tablet/Medium Screen Room Panel Toggle (hidden on mobile and desktop) */}
+            {/* Mobile / Tablet Screen Room Panel Toggle */}
             <button
               type="button"
               onClick={() => setMobileRoomPanelOpen((prev) => !prev)}
-              className="hidden md:flex xl:hidden p-2 rounded-xl glass-pill text-neutral-300 hover:text-white items-center gap-1.5 text-xs font-semibold shrink-0"
-              title="Open Room Panel"
+              className="flex xl:hidden p-2 rounded-xl glass-pill text-neutral-300 hover:text-white items-center gap-1.5 text-xs font-semibold shrink-0"
+              title="Open Up Next Queue & Room Panel"
+              aria-label="Open Room Panel"
             >
               <Users className="w-4 h-4 text-purple-400" />
-              <span>Room</span>
+              <span className="hidden sm:inline">Room</span>
+              {queue.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-purple-600/50 text-[10px] text-white">
+                  {queue.length}
+                </span>
+              )}
             </button>
           </div>
 
@@ -172,8 +190,15 @@ export function LiquidGlassLayout({
             onSkipPrev={onSkipPrev}
             onSelectTrack={onSelectTrack}
             onRemoveQueueItem={onRemoveQueueItem}
+            onMoveQueueItem={onMoveQueueItem}
+            onShuffleQueue={onShuffleQueue}
+            isShuffle={isShuffle}
+            onToggleShuffle={onToggleShuffle}
+            isRepeat={isRepeat}
+            onToggleRepeat={onToggleRepeat}
             onLeaveRoom={onLeaveRoom}
             isBuffering={isBuffering}
+            onOpenInvite={onOpenInvite}
           />
         </div>
       </div>
@@ -246,11 +271,18 @@ export function LiquidGlassLayout({
               onSkipPrev={onSkipPrev}
               onSelectTrack={onSelectTrack}
               onRemoveQueueItem={onRemoveQueueItem}
+              onMoveQueueItem={onMoveQueueItem}
+              onShuffleQueue={onShuffleQueue}
+              isShuffle={isShuffle}
+              onToggleShuffle={onToggleShuffle}
+              isRepeat={isRepeat}
+              onToggleRepeat={onToggleRepeat}
               onLeaveRoom={() => {
                 setMobileRoomPanelOpen(false);
                 onLeaveRoom();
               }}
               isBuffering={isBuffering}
+              onOpenInvite={onOpenInvite}
             />
           </div>
         </div>
@@ -272,6 +304,10 @@ export function LiquidGlassLayout({
         isMuted={isMuted}
         onToggleMute={onToggleMute}
         isBuffering={isBuffering}
+        isShuffle={isShuffle}
+        onToggleShuffle={onToggleShuffle}
+        isRepeat={isRepeat}
+        onToggleRepeat={onToggleRepeat}
       />
 
       {/* Real Audio / Video Media Player Engines (Seamless background execution) */}

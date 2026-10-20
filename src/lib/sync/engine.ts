@@ -99,21 +99,29 @@ export class PlaybackSyncEngine {
 
   /**
    * Calculate the expected playback position in seconds based on authoritative basePosition,
-   * current status, and elapsed time since the server updated the state.
+   * current status, elapsed time since the server updated the state or scheduled future execution time.
    */
   public calculateExpectedPosition(state: PlaybackState): number {
     if (state.playbackStatus !== 'playing') {
       return Math.max(0, state.basePositionSeconds);
     }
 
-    const serverUpdateMs = new Date(state.updatedAtServer).getTime();
-    if (isNaN(serverUpdateMs)) {
+    const currentServerTimeMs = this.getEstimatedServerTimeMs();
+
+    // If future execution timestamp is scheduled and has not arrived yet, remain at basePosition
+    if (state.scheduledAt && currentServerTimeMs < state.scheduledAt) {
       return Math.max(0, state.basePositionSeconds);
     }
 
-    const currentServerTimeMs = this.getEstimatedServerTimeMs();
-    const elapsedSeconds = Math.max(0, (currentServerTimeMs - serverUpdateMs) / 1000);
+    // Determine the anchor timestamp: if scheduledAt was set, count elapsed from scheduled start
+    const anchorTimeMs =
+      state.scheduledAt || new Date(state.updatedAtServer).getTime();
 
+    if (isNaN(anchorTimeMs)) {
+      return Math.max(0, state.basePositionSeconds);
+    }
+
+    const elapsedSeconds = Math.max(0, (currentServerTimeMs - anchorTimeMs) / 1000);
     const maxDuration = state.track?.durationSeconds || Infinity;
     const rawExpected = state.basePositionSeconds + elapsedSeconds;
 
@@ -145,6 +153,19 @@ export class PlaybackSyncEngine {
       return {
         needsSeek: false,
         targetPosition: state.playbackStatus === 'paused' ? state.basePositionSeconds : currentLocalTime,
+        driftSeconds: 0,
+        signedDriftSeconds: 0,
+        suggestedRate: 1.0,
+      };
+    }
+
+    const currentServerTimeMs = this.getEstimatedServerTimeMs();
+
+    // If we are currently waiting for scheduled execution: do not seek or adjust rate
+    if (state.scheduledAt && currentServerTimeMs < state.scheduledAt) {
+      return {
+        needsSeek: false,
+        targetPosition: state.basePositionSeconds,
         driftSeconds: 0,
         signedDriftSeconds: 0,
         suggestedRate: 1.0,

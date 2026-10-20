@@ -46,9 +46,11 @@ export const PlaybackCommandSchema = z.object({
 
 export const QueueActionSchema = z.object({
   roomId: z.string().uuid('Invalid room ID'),
-  action: z.enum(['ADD', 'REMOVE', 'ADVANCE']),
+  action: z.enum(['ADD', 'REMOVE', 'ADVANCE', 'REORDER', 'MOVE', 'SHUFFLE']),
   track: TrackSchema.optional(),
   queueItemId: z.string().optional(),
+  orderedItemIds: z.array(z.string()).optional(),
+  direction: z.enum(['UP', 'DOWN']).optional(),
 });
 
 export const ModerationActionSchema = z.object({

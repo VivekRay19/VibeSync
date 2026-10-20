@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { QueueActionSchema } from '@/lib/validations/room-schema';
-import { getQueue, addQueueItem, removeQueueItem } from '@/lib/neon/db';
+import { getQueue, addQueueItem, removeQueueItem, reorderQueue, moveQueueItem, shuffleQueue } from '@/lib/neon/db';
 import { getAuthenticatedUser } from '@/lib/auth/session';
 import { broadcastToRoom } from '@/lib/realtime/broadcast';
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { roomId, action, track, queueItemId } = validation.data;
+    const { roomId, action, track, queueItemId, orderedItemIds, direction } = validation.data;
     const session = getAuthenticatedUser();
     const userId = session?.userId || body.userId || 'guest_user';
     const displayName = session?.displayName || body.displayName || 'Room Listener';
@@ -57,6 +57,18 @@ export async function POST(req: NextRequest) {
       broadcastToRoom(roomId, 'QUEUE_UPDATE', { queue: updatedQueue });
 
       return NextResponse.json({ success: true, removedId: queueItemId, queue: updatedQueue }, { status: 200 });
+    } else if (action === 'REORDER' && orderedItemIds && orderedItemIds.length > 0) {
+      const updatedQueue = await reorderQueue(roomId, orderedItemIds);
+      broadcastToRoom(roomId, 'QUEUE_UPDATE', { queue: updatedQueue });
+      return NextResponse.json({ success: true, queue: updatedQueue }, { status: 200 });
+    } else if (action === 'MOVE' && queueItemId && direction) {
+      const updatedQueue = await moveQueueItem(roomId, queueItemId, direction);
+      broadcastToRoom(roomId, 'QUEUE_UPDATE', { queue: updatedQueue });
+      return NextResponse.json({ success: true, queue: updatedQueue }, { status: 200 });
+    } else if (action === 'SHUFFLE') {
+      const updatedQueue = await shuffleQueue(roomId);
+      broadcastToRoom(roomId, 'QUEUE_UPDATE', { queue: updatedQueue });
+      return NextResponse.json({ success: true, queue: updatedQueue }, { status: 200 });
     }
 
     return NextResponse.json({ error: 'Unsupported queue action' }, { status: 400 });

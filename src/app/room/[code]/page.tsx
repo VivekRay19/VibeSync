@@ -52,6 +52,8 @@ export default function RoomPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [driftStatus, setDriftStatus] = useState<string | null>(null);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [isRepeat, setIsRepeat] = useState(false);
 
   // UI state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -328,6 +330,7 @@ export default function RoomPage() {
           ...prev,
           playbackStatus: 'playing',
           basePositionSeconds: positionSeconds,
+          scheduledAt: Date.now() + 1000,
           updatedAtServer: new Date().toISOString(),
           revision: prev.revision + 1,
         };
@@ -391,7 +394,14 @@ export default function RoomPage() {
   const handleSelectTrack = (track: NormalizedTrack) =>
     sendPlaybackCommand('SELECT_TRACK', 0, track);
   const handleSkipNext = () => sendPlaybackCommand('SKIP_NEXT', 0);
-  const handleTrackEnded = () => sendPlaybackCommand('SKIP_NEXT', 0);
+  const handleTrackEnded = () => {
+    if (isRepeat) {
+      sendPlaybackCommand('SEEK', 0);
+      sendPlaybackCommand('PLAY', 0);
+    } else {
+      sendPlaybackCommand('SKIP_NEXT', 0);
+    }
+  };
 
   // Queue actions
   const handleAddToQueue = async (track: NormalizedTrack) => {
@@ -452,6 +462,89 @@ export default function RoomPage() {
       }
     } catch (err) {
       console.error('Remove queue item error:', err);
+    }
+  };
+
+  const handleMoveQueueItem = async (queueItemId: string, direction: 'UP' | 'DOWN') => {
+    if (!room || !session) return;
+
+    // Optimistic local update
+    setQueue((prev) => {
+      const idx = prev.findIndex((i) => i.id === queueItemId);
+      if (idx === -1) return prev;
+      const targetIdx = direction === 'UP' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= prev.length) return prev;
+      const clone = [...prev];
+      const temp = clone[idx];
+      clone[idx] = clone[targetIdx];
+      clone[targetIdx] = temp;
+      return clone;
+    });
+
+    try {
+      const res = await fetch('/api/rooms/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: room.id,
+          action: 'MOVE',
+          queueItemId,
+          direction,
+          userId: session.userId,
+          displayName: session.displayName,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.queue) {
+        setQueue(data.queue);
+        if (tabBroadcastRef.current) {
+          tabBroadcastRef.current.postMessage({ type: 'QUEUE_UPDATE', payload: data.queue });
+        }
+      }
+    } catch (err) {
+      console.error('Move queue item error:', err);
+    }
+  };
+
+  const handleShuffleQueue = async () => {
+    if (!room || !session) return;
+    setIsShuffle((p) => !p);
+
+    // Optimistic local shuffle
+    setQueue((prev) => {
+      if (prev.length <= 1) return prev;
+      const clone = [...prev];
+      for (let i = clone.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const temp = clone[i];
+        clone[i] = clone[j];
+        clone[j] = temp;
+      }
+      return clone;
+    });
+
+    try {
+      const res = await fetch('/api/rooms/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: room.id,
+          action: 'SHUFFLE',
+          userId: session.userId,
+          displayName: session.displayName,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.queue) {
+        setQueue(data.queue);
+        if (tabBroadcastRef.current) {
+          tabBroadcastRef.current.postMessage({ type: 'QUEUE_UPDATE', payload: data.queue });
+        }
+      }
+    } catch (err) {
+      console.error('Shuffle queue error:', err);
     }
   };
 
@@ -688,6 +781,12 @@ export default function RoomPage() {
       onSelectTrack={handleSelectTrack}
       onAddToQueue={handleAddToQueue}
       onRemoveQueueItem={handleRemoveQueueItem}
+      onMoveQueueItem={handleMoveQueueItem}
+      onShuffleQueue={handleShuffleQueue}
+      isShuffle={isShuffle}
+      onToggleShuffle={handleShuffleQueue}
+      isRepeat={isRepeat}
+      onToggleRepeat={() => setIsRepeat((p) => !p)}
       onVolumeChange={handleVolumeChange}
       onToggleMute={handleToggleMute}
       onOpenCreateRoom={() => setIsCreateOpen(true)}
@@ -783,6 +882,8 @@ export default function RoomPage() {
               isRoomOwner={isRoomOwner}
               onPlayNow={handlePlayQueuedTrack}
               onRemoveItem={handleRemoveQueueItem}
+              onMoveItem={handleMoveQueueItem}
+              onShuffleQueue={handleShuffleQueue}
               onOpenSearch={() => setIsSearchOpen(true)}
             />
 

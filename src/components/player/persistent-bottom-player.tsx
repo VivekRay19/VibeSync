@@ -20,6 +20,11 @@ import {
 import { PlaybackState } from '@/lib/types/music';
 import { formatDuration } from '@/lib/utils';
 import { LyricsModal } from './lyrics-modal';
+import {
+  isTrackLiked,
+  toggleLikeTrack,
+  subscribeLikedTracks,
+} from '@/lib/storage/favorites';
 
 interface PersistentBottomPlayerProps {
   playbackState: PlaybackState | null;
@@ -36,6 +41,10 @@ interface PersistentBottomPlayerProps {
   isMuted: boolean;
   onToggleMute: () => void;
   isBuffering?: boolean;
+  isShuffle?: boolean;
+  onToggleShuffle?: () => void;
+  isRepeat?: boolean;
+  onToggleRepeat?: () => void;
 }
 
 export function PersistentBottomPlayer({
@@ -53,14 +62,66 @@ export function PersistentBottomPlayer({
   isMuted,
   onToggleMute,
   isBuffering = false,
+  isShuffle = false,
+  onToggleShuffle,
+  isRepeat = false,
+  onToggleRepeat,
 }: PersistentBottomPlayerProps) {
-  const [isLiked, setIsLiked] = useState(false);
-  const [isShuffle, setIsShuffle] = useState(false);
-  const [isRepeat, setIsRepeat] = useState(false);
+  const track = playbackState?.track;
+  const [isLiked, setIsLiked] = useState(() => isTrackLiked(track?.id));
+  const [localShuffle, setLocalShuffle] = useState(isShuffle);
+  const [localRepeat, setLocalRepeat] = useState(isRepeat);
   const [isSeekingLocally, setIsSeekingLocally] = useState(false);
   const [localSeekSeconds, setLocalSeekSeconds] = useState(currentSeconds);
   const [isLyricsOpen, setIsLyricsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Sync favorites state
+  useEffect(() => {
+    setIsLiked(isTrackLiked(track?.id));
+    const unsubscribe = subscribeLikedTracks(() => {
+      setIsLiked(isTrackLiked(track?.id));
+    });
+    return unsubscribe;
+  }, [track?.id]);
+
+  useEffect(() => {
+    setLocalShuffle(isShuffle);
+  }, [isShuffle]);
+
+  useEffect(() => {
+    setLocalRepeat(isRepeat);
+  }, [isRepeat]);
+
+  const handleToggleLike = () => {
+    if (track) {
+      const nowLiked = toggleLikeTrack(track);
+      setIsLiked(nowLiked);
+    }
+  };
+
+  const handleShuffleClick = () => {
+    setLocalShuffle((prev) => !prev);
+    onToggleShuffle?.();
+  };
+
+  const handleRepeatClick = () => {
+    setLocalRepeat((prev) => !prev);
+    onToggleRepeat?.();
+  };
+
+  const handleAirplay = () => {
+    const videoElem = document.querySelector('video') as HTMLVideoElement | null;
+    if (videoElem && document.pictureInPictureEnabled) {
+      if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().catch(() => {});
+      } else {
+        videoElem.requestPictureInPicture().catch(() => {});
+      }
+    } else {
+      toggleFullscreen();
+    }
+  };
 
   useEffect(() => {
     if (!isSeekingLocally) {
@@ -68,7 +129,6 @@ export function PersistentBottomPlayer({
     }
   }, [currentSeconds, isSeekingLocally]);
 
-  const track = playbackState?.track;
   const duration = totalDuration > 0 ? totalDuration : track?.durationSeconds || 1;
   const progressPercent = Math.min(100, Math.max(0, (localSeekSeconds / duration) * 100));
 
@@ -121,9 +181,10 @@ export function PersistentBottomPlayer({
 
             <button
               type="button"
-              onClick={() => setIsLiked((prev) => !prev)}
+              onClick={handleToggleLike}
               className="hidden sm:flex p-1.5 text-neutral-400 hover:text-white transition-colors"
-              title="Save to Liked Songs"
+              title={isLiked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+              aria-label="Save to Liked Songs"
             >
               <Heart
                 className={`w-4 h-4 transition-colors ${
@@ -139,11 +200,12 @@ export function PersistentBottomPlayer({
             <div className="flex items-center gap-3 sm:gap-5">
               <button
                 type="button"
-                onClick={() => setIsShuffle((prev) => !prev)}
+                onClick={handleShuffleClick}
                 className={`hidden sm:flex p-1 rounded-lg transition-colors ${
-                  isShuffle ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
+                  localShuffle ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
                 }`}
-                title="Shuffle"
+                title={localShuffle ? 'Shuffle active' : 'Shuffle queue'}
+                aria-label="Toggle Shuffle"
               >
                 <Shuffle className="w-3.5 h-3.5" />
               </button>
@@ -184,11 +246,12 @@ export function PersistentBottomPlayer({
 
               <button
                 type="button"
-                onClick={() => setIsRepeat((prev) => !prev)}
+                onClick={handleRepeatClick}
                 className={`hidden sm:flex p-1 rounded-lg transition-colors ${
-                  isRepeat ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
+                  localRepeat ? 'text-purple-400' : 'text-neutral-400 hover:text-white'
                 }`}
-                title="Repeat"
+                title={localRepeat ? 'Repeat active' : 'Repeat track'}
+                aria-label="Toggle Repeat"
               >
                 <Repeat className="w-3.5 h-3.5" />
               </button>
@@ -268,8 +331,10 @@ export function PersistentBottomPlayer({
 
             <button
               type="button"
+              onClick={handleAirplay}
               className="hidden md:flex p-1.5 rounded-lg text-neutral-400 hover:text-white transition-colors"
-              title="Mini player / Cast"
+              title="Mini Player / Picture-in-Picture"
+              aria-label="Toggle Mini Player"
             >
               <Airplay className="w-4 h-4" />
             </button>

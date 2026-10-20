@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
           modified: false,
           revision: playbackState.revision,
           playbackStatus: playbackState.playbackStatus,
+          scheduledAt: playbackState.scheduledAt,
           serverTimestamp,
         },
         {

@@ -237,12 +237,17 @@ export async function joinRoom(
   let playbackState: PlaybackState | null = null;
   if (pbRows && pbRows.length > 0) {
     const rawPb = pbRows[0];
+    const rawMeta = typeof rawPb.track_metadata === 'string' ? JSON.parse(rawPb.track_metadata) : rawPb.track_metadata;
+    const scheduledAt = rawMeta?._scheduledAt ? Number(rawMeta._scheduledAt) : null;
+    const cleanTrack = { ...rawMeta };
+    delete cleanTrack._scheduledAt;
+
     playbackState = {
       id: rawPb.id,
       roomId: rawPb.room_id,
       provider: rawPb.provider_id,
       providerTrackId: rawPb.provider_track_id,
-      track: typeof rawPb.track_metadata === 'string' ? JSON.parse(rawPb.track_metadata) : rawPb.track_metadata,
+      track: cleanTrack,
       playbackStatus: rawPb.playback_status as PlaybackStatus,
       basePositionSeconds: Number(rawPb.base_position_seconds),
       updatedAtServer: new Date(rawPb.updated_at).toISOString(),
@@ -250,6 +255,7 @@ export async function joinRoom(
       updatedBy: rawPb.updated_by,
       updatedByName: rawPb.updated_by_name,
       currentQueueItemId: rawPb.current_queue_item_id || null,
+      scheduledAt,
     };
   }
 
@@ -267,10 +273,12 @@ export async function joinRoom(
 
   const queue: QueueItem[] = (queueRows || []).map((row) => {
     const q = row as unknown as { id: string; room_id: string; track_metadata: string | NormalizedTrack; added_by: string; added_by_name: string; queue_position: number; created_at: string | Date; status: 'pending' | 'playing' | 'played' };
+    const rawItemMeta = typeof q.track_metadata === 'string' ? JSON.parse(q.track_metadata) : q.track_metadata;
+    delete rawItemMeta._scheduledAt;
     return {
       id: q.id,
       roomId: q.room_id,
-      track: typeof q.track_metadata === 'string' ? JSON.parse(q.track_metadata) : q.track_metadata,
+      track: rawItemMeta,
       addedByUserId: q.added_by,
       addedByName: q.added_by_name,
       queuePosition: Number(q.queue_position),
@@ -294,13 +302,17 @@ export async function getPlaybackState(roomId: string): Promise<PlaybackState | 
 
   if (!pbRows || pbRows.length === 0) return null;
   const rawPb = pbRows[0];
+  const rawMeta = typeof rawPb.track_metadata === 'string' ? JSON.parse(rawPb.track_metadata) : rawPb.track_metadata;
+  const scheduledAt = rawMeta?._scheduledAt ? Number(rawMeta._scheduledAt) : null;
+  const cleanTrack = { ...rawMeta };
+  delete cleanTrack._scheduledAt;
 
   return {
     id: rawPb.id,
     roomId: rawPb.room_id,
     provider: rawPb.provider_id,
     providerTrackId: rawPb.provider_track_id,
-    track: typeof rawPb.track_metadata === 'string' ? JSON.parse(rawPb.track_metadata) : rawPb.track_metadata,
+    track: cleanTrack,
     playbackStatus: rawPb.playback_status as PlaybackStatus,
     basePositionSeconds: Number(rawPb.base_position_seconds),
     updatedAtServer: new Date(rawPb.updated_at).toISOString(),
@@ -308,6 +320,7 @@ export async function getPlaybackState(roomId: string): Promise<PlaybackState | 
     updatedBy: rawPb.updated_by,
     updatedByName: rawPb.updated_by_name,
     currentQueueItemId: rawPb.current_queue_item_id || null,
+    scheduledAt,
   };
 }
 
@@ -366,10 +379,17 @@ export async function updatePlaybackCommand(params: {
 
   let nextStatus = current.playback_status as PlaybackStatus;
   let nextPos = Number(current.base_position_seconds);
-  let nextTrack = typeof current.track_metadata === 'string' ? JSON.parse(current.track_metadata) : current.track_metadata;
+  const currentRawMeta = typeof current.track_metadata === 'string' ? JSON.parse(current.track_metadata) : current.track_metadata;
+  let nextTrack: NormalizedTrack = track || { ...currentRawMeta };
+  delete (nextTrack as unknown as Record<string, unknown>)._scheduledAt;
   let nextProvider = current.provider_id;
   let nextProviderTrackId = current.provider_track_id;
   let nextQueueItemId = current.current_queue_item_id;
+  let targetScheduledAt: number | null = null;
+
+  const serverNow = Date.now();
+  const currentScheduledAt = currentRawMeta?._scheduledAt ? Number(currentRawMeta._scheduledAt) : null;
+  const lastUpdatedAtMs = new Date(current.updated_at).getTime();
 
   if (command === 'SELECT_TRACK' && track) {
     nextStatus = 'playing';
@@ -378,14 +398,37 @@ export async function updatePlaybackCommand(params: {
     nextProvider = track.provider;
     nextProviderTrackId = track.providerTrackId;
     nextQueueItemId = queueItemId || null;
+    targetScheduledAt = scheduledAt || (serverNow + 1000);
   } else if (command === 'PLAY' || command === 'RESUME') {
     nextStatus = 'playing';
-    nextPos = positionSeconds;
+    // Retain canonical paused position unless caller explicitly specified a seek position > 0
+    nextPos = positionSeconds > 0 ? positionSeconds : Number(current.base_position_seconds);
+    // Scheduled future execution anchor targeting ~1,000ms lead time
+    targetScheduledAt = scheduledAt || (serverNow + 1000);
   } else if (command === 'PAUSE') {
     nextStatus = 'paused';
-    nextPos = positionSeconds;
+    // If caller explicitly provided a positive positionSeconds, honor it.
+    // Otherwise, calculate canonical elapsed position from anchor timestamp clamped by track duration.
+    if (positionSeconds > 0) {
+      nextPos = positionSeconds;
+    } else if (current.playback_status === 'playing') {
+      const anchorMs = currentScheduledAt && currentScheduledAt <= serverNow ? currentScheduledAt : lastUpdatedAtMs;
+      const elapsed = !isNaN(anchorMs) ? Math.max(0, (serverNow - anchorMs) / 1000) : 0;
+      const trackDuration = nextTrack?.durationSeconds || Infinity;
+      nextPos = Math.min(Number(current.base_position_seconds) + elapsed, trackDuration);
+    } else {
+      nextPos = Number(current.base_position_seconds);
+    }
+    targetScheduledAt = null;
   } else if (command === 'SEEK') {
     nextPos = positionSeconds;
+    if (current.playback_status === 'playing') {
+      nextStatus = 'playing';
+      targetScheduledAt = serverNow + 600;
+    } else {
+      nextStatus = 'paused';
+      targetScheduledAt = null;
+    }
   } else if (command === 'SKIP_NEXT') {
     // Look up next pending queue item
     const queueRows = await sql`
@@ -406,21 +449,31 @@ export async function updatePlaybackCommand(params: {
 
       nextStatus = 'playing';
       nextPos = 0;
-      nextTrack = typeof nextItem.track_metadata === 'string' ? JSON.parse(nextItem.track_metadata) : nextItem.track_metadata;
+      const rawItemMeta = typeof nextItem.track_metadata === 'string' ? JSON.parse(nextItem.track_metadata) : nextItem.track_metadata;
+      delete rawItemMeta._scheduledAt;
+      nextTrack = rawItemMeta;
       nextProvider = nextItem.provider_id;
       nextProviderTrackId = nextItem.provider_track_id;
       nextQueueItemId = nextItem.id;
+      targetScheduledAt = serverNow + 1000;
     } else {
       nextStatus = 'ended';
       nextPos = 0;
+      targetScheduledAt = null;
     }
   }
+
+  // Inject _scheduledAt into stored jsonb metadata so any serverless instance reading it has identical scheduledAt
+  const metadataToStore = {
+    ...nextTrack,
+    ...(targetScheduledAt ? { _scheduledAt: targetScheduledAt } : {}),
+  };
 
   const updatedRows = await sql`
     UPDATE playback_state
     SET provider_id = ${nextProvider},
         provider_track_id = ${nextProviderTrackId},
-        track_metadata = ${JSON.stringify(nextTrack)}::jsonb,
+        track_metadata = ${JSON.stringify(metadataToStore)}::jsonb,
         playback_status = ${nextStatus},
         base_position_seconds = ${nextPos},
         revision = ${nextRevision},
@@ -438,12 +491,17 @@ export async function updatePlaybackCommand(params: {
   }
 
   const raw = updatedRows[0];
+  const returnedMeta = typeof raw.track_metadata === 'string' ? JSON.parse(raw.track_metadata) : raw.track_metadata;
+  const returnedScheduledAt = returnedMeta?._scheduledAt ? Number(returnedMeta._scheduledAt) : null;
+  const cleanReturnedTrack = { ...returnedMeta };
+  delete cleanReturnedTrack._scheduledAt;
+
   const state: PlaybackState = {
     id: raw.id,
     roomId: raw.room_id,
     provider: raw.provider_id,
     providerTrackId: raw.provider_track_id,
-    track: typeof raw.track_metadata === 'string' ? JSON.parse(raw.track_metadata) : raw.track_metadata,
+    track: cleanReturnedTrack,
     playbackStatus: raw.playback_status as PlaybackStatus,
     basePositionSeconds: Number(raw.base_position_seconds),
     updatedAtServer: new Date(raw.updated_at).toISOString(),
@@ -452,7 +510,7 @@ export async function updatePlaybackCommand(params: {
     updatedByName: raw.updated_by_name,
     currentQueueItemId: raw.current_queue_item_id || null,
     commandId,
-    scheduledAt: scheduledAt || null,
+    scheduledAt: returnedScheduledAt,
   };
 
   if (commandId) {
@@ -553,6 +611,57 @@ export async function removeQueueItem(roomId: string, queueItemId: string): Prom
     WHERE id = ${queueItemId} AND room_id = ${roomId}
   `;
   return true;
+}
+
+export async function reorderQueue(roomId: string, orderedIds: string[]): Promise<QueueItem[]> {
+  const sql = getDb();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await sql`
+      UPDATE queue_items
+      SET queue_position = ${i}
+      WHERE id = ${orderedIds[i]} AND room_id = ${roomId}
+    `;
+  }
+  return getQueue(roomId);
+}
+
+export async function moveQueueItem(
+  roomId: string,
+  queueItemId: string,
+  direction: 'UP' | 'DOWN'
+): Promise<QueueItem[]> {
+  const currentQueue = await getQueue(roomId);
+  const index = currentQueue.findIndex((item) => item.id === queueItemId);
+  if (index === -1) return currentQueue;
+
+  const targetIndex = direction === 'UP' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= currentQueue.length) {
+    return currentQueue;
+  }
+
+  // Swap positions in array and persist
+  const newQueue = [...currentQueue];
+  const temp = newQueue[index];
+  newQueue[index] = newQueue[targetIndex];
+  newQueue[targetIndex] = temp;
+
+  return reorderQueue(roomId, newQueue.map((item) => item.id));
+}
+
+export async function shuffleQueue(roomId: string): Promise<QueueItem[]> {
+  const currentQueue = await getQueue(roomId);
+  if (currentQueue.length <= 1) return currentQueue;
+
+  // Fisher-Yates shuffle
+  const shuffledIds = currentQueue.map((item) => item.id);
+  for (let i = shuffledIds.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = shuffledIds[i];
+    shuffledIds[i] = shuffledIds[j];
+    shuffledIds[j] = temp;
+  }
+
+  return reorderQueue(roomId, shuffledIds);
 }
 
 export async function getMembers(roomId: string): Promise<RoomMember[]> {

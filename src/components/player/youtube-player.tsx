@@ -78,6 +78,16 @@ export function YouTubePlayer({
 
   const prevVideoIdRef = useRef<string | null>(null);
   const isAdvancingRef = useRef(false);
+  const scheduledTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear pending timers on unmount
+  useEffect(() => {
+    return () => {
+      if (scheduledTimerRef.current) {
+        clearTimeout(scheduledTimerRef.current);
+      }
+    };
+  }, []);
 
   const propsRef = useRef({
     playbackState,
@@ -295,6 +305,36 @@ export function YouTubePlayer({
       onTimeUpdate?.(currentPos, duration);
 
       if (playbackState.playbackStatus === 'playing') {
+        const currentServerTime = syncEngine.getEstimatedServerTimeMs();
+        const scheduledAt = playbackState.scheduledAt;
+
+        // If playback start is scheduled in the future, cue/pause and arm timer
+        if (scheduledAt && currentServerTime < scheduledAt) {
+          const delayMs = Math.max(0, scheduledAt - currentServerTime);
+          if (Math.abs(currentPos - playbackState.basePositionSeconds) > 0.3) {
+            player.seekTo(playbackState.basePositionSeconds, true);
+          }
+          if (currentState === 1) {
+            player.pauseVideo();
+          }
+
+          if (scheduledTimerRef.current) {
+            clearTimeout(scheduledTimerRef.current);
+          }
+          scheduledTimerRef.current = setTimeout(() => {
+            if (playerRef.current && !autoplayBlocked) {
+              playerRef.current.playVideo();
+            }
+          }, delayMs);
+          return;
+        }
+
+        // Scheduled execution reached or no scheduledAt: clear timer
+        if (scheduledTimerRef.current) {
+          clearTimeout(scheduledTimerRef.current);
+          scheduledTimerRef.current = null;
+        }
+
         // Calculate drift against authoritative room state with sub-500ms threshold
         const { needsSeek, targetPosition, driftSeconds } = syncEngine.shouldCorrectDrift(
           currentPos,
@@ -316,6 +356,10 @@ export function YouTubePlayer({
           }
         }
       } else if (playbackState.playbackStatus === 'paused') {
+        if (scheduledTimerRef.current) {
+          clearTimeout(scheduledTimerRef.current);
+          scheduledTimerRef.current = null;
+        }
         if (currentState !== 2) {
           player.pauseVideo();
         }
@@ -329,10 +373,10 @@ export function YouTubePlayer({
     }
   }, [playbackState, isPlayerReady, isBuffering, autoplayBlocked, onDriftCorrected, onTimeUpdate]);
 
-  // IMMEDIATE execution on authoritative room state update (zero delay on play/pause)
+  // IMMEDIATE execution on authoritative room state update
   useEffect(() => {
     syncPlayback();
-  }, [playbackState.playbackStatus, playbackState.revision, playbackState.basePositionSeconds, syncPlayback]);
+  }, [playbackState.playbackStatus, playbackState.revision, playbackState.basePositionSeconds, playbackState.scheduledAt, syncPlayback]);
 
   // Periodic drift synchronization loop (every 650ms)
   useEffect(() => {

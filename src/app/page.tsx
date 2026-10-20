@@ -174,6 +174,8 @@ export default function HomePage() {
   const [isBuffering, setIsBuffering] = useState(false);
   const [localVolume, setLocalVolume] = useState(0.85);
   const [isMuted, setIsMuted] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [isRepeat, setIsRepeat] = useState(false);
 
   // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -272,8 +274,9 @@ export default function HomePage() {
 
   const handleSkipNext = () => {
     if (queue.length > 0) {
-      const nextItem = queue[0];
-      const remaining = queue.slice(1);
+      const nextIndex = isShuffle ? Math.floor(Math.random() * queue.length) : 0;
+      const nextItem = queue[nextIndex];
+      const remaining = queue.filter((_, i) => i !== nextIndex);
       setQueue(remaining);
       handleSelectTrack(nextItem.track);
     }
@@ -284,7 +287,41 @@ export default function HomePage() {
   };
 
   const handleTrackEnded = () => {
-    handleSkipNext();
+    if (isRepeat) {
+      handleSeek(0);
+      handlePlay();
+    } else {
+      handleSkipNext();
+    }
+  };
+
+  const handleMoveQueueItem = (itemId: string, direction: 'UP' | 'DOWN') => {
+    setQueue((prev) => {
+      const idx = prev.findIndex((i) => i.id === itemId);
+      if (idx === -1) return prev;
+      const targetIdx = direction === 'UP' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= prev.length) return prev;
+      const clone = [...prev];
+      const temp = clone[idx];
+      clone[idx] = clone[targetIdx];
+      clone[targetIdx] = temp;
+      return clone;
+    });
+  };
+
+  const handleShuffleQueue = () => {
+    setQueue((prev) => {
+      if (prev.length <= 1) return prev;
+      const clone = [...prev];
+      for (let i = clone.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const temp = clone[i];
+        clone[i] = clone[j];
+        clone[j] = temp;
+      }
+      return clone;
+    });
+    setIsShuffle((p) => !p);
   };
 
   // Create Room Action
@@ -394,6 +431,12 @@ export default function HomePage() {
       onRemoveQueueItem={(itemId) =>
         setQueue((prev) => prev.filter((item) => item.id !== itemId))
       }
+      onMoveQueueItem={handleMoveQueueItem}
+      onShuffleQueue={handleShuffleQueue}
+      isShuffle={isShuffle}
+      onToggleShuffle={() => setIsShuffle((p) => !p)}
+      isRepeat={isRepeat}
+      onToggleRepeat={() => setIsRepeat((p) => !p)}
       onVolumeChange={(vol) => {
         setLocalVolume(vol);
         if (isMuted && vol > 0) setIsMuted(false);
