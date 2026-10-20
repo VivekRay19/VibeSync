@@ -46,6 +46,19 @@ export interface VeromeLyricsResponse {
   error?: string;
 }
 
+const INNERTUBE_API_KEY = 'AIzaSyC9XL3ZjWjXClIX1FmUxJq--EohcD4_oSs';
+const INNERTUBE_BASE_URL = 'https://music.youtube.com/youtubei/v1';
+const INNERTUBE_CONTEXT = {
+  client: {
+    hl: 'en',
+    gl: 'US',
+    clientName: 'WEB_REMIX',
+    clientVersion: '1.20251015.03.00',
+    platform: 'DESKTOP',
+    utcOffsetMinutes: 0,
+  },
+};
+
 /**
  * Parses time formats such as "03:45", "1:15:20", or integer seconds into total seconds.
  */
@@ -85,7 +98,8 @@ export class VeromeAdapter implements MusicProvider {
   }
 
   isConfigured(): boolean {
-    return Boolean(this.baseUrl && this.baseUrl.trim().length > 0);
+    // Both external Verome instance and built-in direct YouTube Music engine are operational
+    return true;
   }
 
   getBaseUrl(): string {
@@ -106,7 +120,8 @@ export class VeromeAdapter implements MusicProvider {
     }
 
     const title = (item.title || 'Unknown Title').trim();
-    const artworkUrl = item.thumbnails?.[0]?.url || item.thumbnail || null;
+    const artworkUrl =
+      item.thumbnails?.[0]?.url || item.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
     const durationSeconds = parseDurationSeconds(item.duration || item.lengthSeconds);
 
     return {
@@ -118,12 +133,12 @@ export class VeromeAdapter implements MusicProvider {
       artworkUrl,
       durationSeconds,
       providerPageUrl: `https://music.youtube.com/watch?v=${videoId}`,
-      streamUrl: null, // Embed playback via official YouTube IFrame Player; direct proxying avoided for SSRF safety & compliance
+      streamUrl: null, // Playback powered by official YouTube IFrame Player API
       playbackType: 'video_embed',
       restrictions: {
         embeddable: true,
       },
-      attributionText: `Song "${title}" by ${artistName} on YouTube Music via Verome`,
+      attributionText: `Song "${title}" by ${artistName} on YouTube Music`,
       isPlayable: true,
     };
   }
@@ -135,6 +150,7 @@ export class VeromeAdapter implements MusicProvider {
       return { tracks: [], provider: this.id, hasMore: false, total: 0 };
     }
 
+    // 1. If an external or custom Verome API endpoint is reachable, query it
     try {
       const url = new URL(`${this.baseUrl}/api/search`);
       url.searchParams.set('q', cleanQuery);
@@ -142,40 +158,172 @@ export class VeromeAdapter implements MusicProvider {
 
       const res = await fetch(url.toString(), {
         headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(4000),
+      });
+
+      if (res.ok) {
+        const data: VeromeSearchResponse = await res.json();
+        const rawResults = data.results || [];
+        const tracks: NormalizedTrack[] = rawResults
+          .map((item) => this.normalize(item))
+          .filter((t): t is NormalizedTrack => t !== null)
+          .slice(0, limit);
+
+        if (tracks.length > 0) {
+          return {
+            tracks,
+            provider: this.id,
+            hasMore: Boolean(data.continuationToken),
+            total: tracks.length,
+          };
+        }
+      }
+    } catch {
+      // Gracefully fall through to direct YouTube Music engine
+    }
+
+    // 2. Built-in resilient YouTube Music Innertube search engine (zero-config, always works)
+    return await this.searchDirectInnertube(cleanQuery, limit);
+  }
+
+  /**
+   * Built-in YouTube Music Innertube search engine
+   */
+  private async searchDirectInnertube(query: string, limit = 20): Promise<SearchResult> {
+    try {
+      const url = `${INNERTUBE_BASE_URL}/search?key=${INNERTUBE_API_KEY}`;
+      const payload = {
+        context: INNERTUBE_CONTEXT,
+        query: query.normalize('NFC'),
+        params: 'EgWKAQIIAWoKEAkQAxAEEAoQBQ%3D%3D', // 'songs' filter
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(6000),
       });
 
       if (!res.ok) {
-        return {
-          tracks: [],
-          provider: this.id,
-          hasMore: false,
-          total: 0,
-          warning: `Verome service responded with status ${res.status}`,
-        };
+        return { tracks: [], provider: this.id, hasMore: false, total: 0 };
       }
 
-      const data: VeromeSearchResponse = await res.json();
-      const rawResults = data.results || [];
-      const tracks: NormalizedTrack[] = rawResults
-        .map((item) => this.normalize(item))
-        .filter((t): t is NormalizedTrack => t !== null)
-        .slice(0, limit);
+      const data = await res.json();
+      const tracks: NormalizedTrack[] = [];
+
+      // Check card / top result shelf
+      const sections =
+        data?.contents?.tabbedSearchResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents ||
+        [];
+
+      for (const section of sections) {
+        if (section.musicCardShelfRenderer) {
+          const card = section.musicCardShelfRenderer;
+          const title = card.title?.runs?.[0]?.text;
+          const videoId =
+            card.onTap?.watchEndpoint?.videoId ||
+            card.buttons?.[0]?.buttonRenderer?.command?.watchEndpoint?.videoId;
+
+          if (title && videoId) {
+            const subtitleRuns = card.subtitle?.runs || [];
+            const artistRun = subtitleRuns.find((r: { text?: string; navigationEndpoint?: unknown }) =>
+              Boolean(r.navigationEndpoint)
+            );
+            const artistName = artistRun?.text || subtitleRuns[0]?.text || 'YouTube Music';
+            const artworkUrl =
+              card.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
+              `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+            tracks.push({
+              id: `verome:${videoId}`,
+              provider: 'verome',
+              providerTrackId: videoId,
+              title,
+              artistName,
+              artworkUrl,
+              durationSeconds: 0,
+              providerPageUrl: `https://music.youtube.com/watch?v=${videoId}`,
+              streamUrl: null,
+              playbackType: 'video_embed',
+              restrictions: { embeddable: true },
+              attributionText: `Song "${title}" by ${artistName} on YouTube Music`,
+              isPlayable: true,
+            });
+          }
+        }
+
+        if (section.musicShelfRenderer) {
+          const contents = section.musicShelfRenderer.contents || [];
+          for (const item of contents) {
+            const renderer = item.musicResponsiveListItemRenderer;
+            if (!renderer) continue;
+
+            const title =
+              renderer.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
+            const videoId =
+              renderer.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
+                ?.playNavigationEndpoint?.watchEndpoint?.videoId;
+
+            if (!title || !videoId) continue;
+
+            const subtitleRuns =
+              renderer.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+
+            const artistNames: string[] = [];
+            let durationSeconds = 0;
+
+            for (const r of subtitleRuns) {
+              const text = r.text?.trim();
+              if (!text || text === '•') continue;
+              if (text.includes(':')) {
+                durationSeconds = parseDurationSeconds(text);
+              } else if (!artistNames.includes(text) && !text.toLowerCase().includes('views')) {
+                artistNames.push(text);
+              }
+            }
+
+            const artistName = artistNames.length > 0 ? artistNames.join(', ') : 'Unknown Artist';
+            const artworkUrl =
+              renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
+              `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+            tracks.push({
+              id: `verome:${videoId}`,
+              provider: 'verome',
+              providerTrackId: videoId,
+              title,
+              artistName,
+              artworkUrl,
+              durationSeconds,
+              providerPageUrl: `https://music.youtube.com/watch?v=${videoId}`,
+              streamUrl: null,
+              playbackType: 'video_embed',
+              restrictions: { embeddable: true },
+              attributionText: `Song "${title}" by ${artistName} on YouTube Music`,
+              isPlayable: true,
+            });
+
+            if (tracks.length >= limit) break;
+          }
+        }
+      }
 
       return {
         tracks,
         provider: this.id,
-        hasMore: Boolean(data.continuationToken),
+        hasMore: false,
         total: tracks.length,
       };
-    } catch (err) {
-      // Graceful fallback when Verome local Deno instance is not running
+    } catch {
       return {
         tracks: [],
         provider: this.id,
         hasMore: false,
         total: 0,
-        warning: `Verome API unreachable at ${this.baseUrl}: ${err instanceof Error ? err.message : 'Network failure'}`,
       };
     }
   }
@@ -183,28 +331,69 @@ export class VeromeAdapter implements MusicProvider {
   async getTrack(providerTrackId: string): Promise<NormalizedTrack | null> {
     if (!providerTrackId) return null;
 
+    // 1. Try external Verome endpoint
     try {
       const url = `${this.baseUrl}/api/songs/${encodeURIComponent(providerTrackId)}`;
       const res = await fetch(url, {
         headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(3000),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const norm = this.normalize(data);
+        if (norm) return norm;
+      }
+    } catch {
+      // Fall through to direct player endpoint
+    }
+
+    // 2. Direct YouTube Music player endpoint
+    try {
+      const url = `${INNERTUBE_BASE_URL}/player?key=${INNERTUBE_API_KEY}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          context: INNERTUBE_CONTEXT,
+          videoId: providerTrackId,
+        }),
+        signal: AbortSignal.timeout(4000),
       });
 
       if (!res.ok) return null;
       const data = await res.json();
-      return this.normalize(data);
+      const details = data?.videoDetails;
+      if (!details) return null;
+
+      return {
+        id: `verome:${providerTrackId}`,
+        provider: 'verome',
+        providerTrackId,
+        title: details.title || 'Unknown Title',
+        artistName: details.author || 'Unknown Artist',
+        artworkUrl:
+          details.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
+          `https://i.ytimg.com/vi/${providerTrackId}/hqdefault.jpg`,
+        durationSeconds: parseInt(details.lengthSeconds, 10) || 0,
+        providerPageUrl: `https://music.youtube.com/watch?v=${providerTrackId}`,
+        streamUrl: null,
+        playbackType: 'video_embed',
+        restrictions: { embeddable: true },
+        attributionText: `Song "${details.title}" by ${details.author} on YouTube Music`,
+        isPlayable: true,
+      };
     } catch {
       return null;
     }
   }
 
   async getPlayableSource(providerTrackId: string): Promise<string | null> {
-    // Playback is powered by official embedded IFrame Player using YouTube video ID
     return providerTrackId ? `https://www.youtube.com/watch?v=${providerTrackId}` : null;
   }
 
   getAttribution(track: NormalizedTrack): string {
-    return track.attributionText || `Song "${track.title}" by ${track.artistName} on YouTube Music via Verome`;
+    return track.attributionText || `Song "${track.title}" by ${track.artistName} on YouTube Music`;
   }
 
   getProviderPageUrl(track: NormalizedTrack): string {
@@ -213,11 +402,13 @@ export class VeromeAdapter implements MusicProvider {
 
   async healthCheck(): Promise<ProviderHealth> {
     const startTime = Date.now();
+
+    // 1. Check local / configured Verome HTTP endpoint
     try {
       const url = `${this.baseUrl}/health`;
       const res = await fetch(url, {
         headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(2000),
       });
 
       const latencyMs = Date.now() - startTime;
@@ -228,16 +419,38 @@ export class VeromeAdapter implements MusicProvider {
           message: 'Verome API operational',
         };
       }
+    } catch {
+      // Local server is not running; check direct YouTube Music connection
+    }
+
+    // 2. Check direct YouTube Music connectivity
+    try {
+      const pingUrl = `${INNERTUBE_BASE_URL}/music/get_search_suggestions?key=${INNERTUBE_API_KEY}`;
+      const pingRes = await fetch(pingUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context: INNERTUBE_CONTEXT, input: 'chill' }),
+        signal: AbortSignal.timeout(3000),
+      });
+
+      const latencyMs = Date.now() - startTime;
+      if (pingRes.ok) {
+        return {
+          healthy: true,
+          latencyMs,
+          message: 'YouTube Music operational (direct discovery)',
+        };
+      }
       return {
         healthy: false,
         latencyMs,
-        message: `Verome API returned status ${res.status}`,
+        message: `YouTube Music responded with status ${pingRes.status}`,
       };
     } catch (err) {
       return {
         healthy: false,
         latencyMs: Date.now() - startTime,
-        message: `Verome API offline at ${this.baseUrl}: ${err instanceof Error ? err.message : 'Unreachable'}`,
+        message: `YouTube Music unreachable: ${err instanceof Error ? err.message : 'Network failure'}`,
       };
     }
   }
@@ -249,6 +462,7 @@ export class VeromeAdapter implements MusicProvider {
     const clean = query.trim();
     if (!clean) return [];
 
+    // 1. Try local Verome instance
     try {
       const url = new URL(`${this.baseUrl}/api/search/suggestions`);
       url.searchParams.set('q', clean);
@@ -256,12 +470,41 @@ export class VeromeAdapter implements MusicProvider {
 
       const res = await fetch(url.toString(), {
         headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(2000),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+          return data.suggestions;
+        }
+      }
+    } catch {
+      // Fall through to direct Innertube suggestions
+    }
+
+    // 2. Direct Innertube suggestions
+    try {
+      const url = `${INNERTUBE_BASE_URL}/music/get_search_suggestions?key=${INNERTUBE_API_KEY}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context: INNERTUBE_CONTEXT, input: clean.normalize('NFC') }),
         signal: AbortSignal.timeout(3000),
       });
 
       if (!res.ok) return [];
       const data = await res.json();
-      return Array.isArray(data.suggestions) ? data.suggestions : [];
+      const contents = data?.contents?.[0]?.searchSuggestionsSectionRenderer?.contents || [];
+      const suggestions: string[] = [];
+
+      for (const item of contents) {
+        const runs = item?.searchSuggestionRenderer?.suggestion?.runs || [];
+        const text = runs.map((r: { text?: string }) => r.text).join('');
+        if (text) suggestions.push(text);
+      }
+
+      return suggestions;
     } catch {
       return [];
     }
@@ -277,7 +520,7 @@ export class VeromeAdapter implements MusicProvider {
       return { success: false, error: 'Missing title or artist' };
     }
 
-    // 1. Try Verome instance
+    // 1. Try local Verome instance
     try {
       const url = new URL(`${this.baseUrl}/api/lyrics`);
       url.searchParams.set('title', cleanTitle);
@@ -286,7 +529,7 @@ export class VeromeAdapter implements MusicProvider {
 
       const res = await fetch(url.toString(), {
         headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(3000),
       });
 
       if (res.ok) {
@@ -294,7 +537,7 @@ export class VeromeAdapter implements MusicProvider {
         if (data && data.success) return data;
       }
     } catch {
-      // Fallback to direct LRCLib if Verome is offline
+      // Fall through to direct LRCLib
     }
 
     // 2. Direct resilient fallback to LRCLib (free, zero API key required)
@@ -336,55 +579,6 @@ export class VeromeAdapter implements MusicProvider {
       };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Lyrics request failed' };
-    }
-  }
-
-  /**
-   * Trending music discovery (/api/trending)
-   */
-  async getTrending(country = 'United States'): Promise<NormalizedTrack[]> {
-    try {
-      const url = new URL(`${this.baseUrl}/api/trending`);
-      url.searchParams.set('country', country);
-
-      const res = await fetch(url.toString(), {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(5000),
-      });
-
-      if (!res.ok) return [];
-      const data = await res.json();
-      const rawList = Array.isArray(data) ? data : data.results || [];
-      return rawList
-        .map((item: VeromeSearchResultItem) => this.normalize(item))
-        .filter((t: NormalizedTrack | null): t is NormalizedTrack => t !== null);
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * Radio discovery mix (/api/radio?videoId=)
-   */
-  async getRadio(videoId: string): Promise<NormalizedTrack[]> {
-    if (!videoId) return [];
-    try {
-      const url = new URL(`${this.baseUrl}/api/radio`);
-      url.searchParams.set('videoId', videoId);
-
-      const res = await fetch(url.toString(), {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(5000),
-      });
-
-      if (!res.ok) return [];
-      const data = await res.json();
-      const tracks = Array.isArray(data.tracks) ? data.tracks : data.results || [];
-      return tracks
-        .map((item: VeromeSearchResultItem) => this.normalize(item))
-        .filter((t: NormalizedTrack | null): t is NormalizedTrack => t !== null);
-    } catch {
-      return [];
     }
   }
 }

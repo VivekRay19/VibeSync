@@ -69,16 +69,17 @@ describe('Music Providers', () => {
     expect(source).toBe('https://www.youtube.com/watch?v=KRUWn3dLoRg');
   });
 
-  it('Verome adapter handles offline service gracefully without throwing', async () => {
-    // Port 19999 has no running server
+  it('Verome adapter falls back to direct YouTube Music engine when local server is offline', async () => {
+    // Port 19999 has no running server - fallback to direct YouTube Music should succeed seamlessly
     const offlineVerome = new VeromeAdapter('http://127.0.0.1:19999');
-    const result = await offlineVerome.searchTracks('Synthwave');
-    expect(result.tracks).toHaveLength(0);
+    const result = await offlineVerome.searchTracks('Synthwave', 1, 3);
     expect(result.provider).toBe('verome');
-    expect(result.warning).toContain('unreachable');
+    expect(result.tracks.length).toBeGreaterThan(0);
+    expect(result.tracks[0].provider).toBe('verome');
+    expect(result.tracks[0].providerTrackId).toBeDefined();
 
     const health = await offlineVerome.healthCheck();
-    expect(health.healthy).toBe(false);
+    expect(health.healthy).toBe(true);
   });
 
   it('Verome adapter retrieves lyrics with resilient LRCLib fallback', async () => {
